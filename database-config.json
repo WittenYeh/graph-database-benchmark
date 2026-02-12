@@ -1,0 +1,47 @@
+{
+  "databases": {
+    "neo4j": {
+      "adapter_class": "com.graphbench.db.neo4j.Neo4jAdapter",
+      "query_language": "cypher",
+      "schema": {
+        "node_label": "Node",
+        "edge_type": "EDGE",
+        "id_property": "id"
+      },
+      "indexing": {
+        "index_timeout_seconds": 60,
+        "create_id_index": true
+      },
+      "performance": {
+        "batch_size": 5000
+      }
+    },
+    "janusgraph": {
+      "adapter_class": "com.graphbench.db.janusgraph.JanusGraphAdapter",
+      "query_language": "gremlin",
+      "storage": {
+        "backend": "berkeleyje",
+        "buffer_size": 2048,
+        "write_attempts": 5,
+        "read_attempts": 3,
+        "attempt_wait": 250
+      },
+      "schema": {
+        "default_mode": "none",
+        "vertex_label": "Node",
+        "edge_label": "link",
+        "property_name": "nodeId",
+        "index_name": "byNodeId"
+      },
+      "performance": {
+        "batch_size": 10000,
+        "bulk_loading": {
+          "enabled": false,
+          "ids_block_size": 200000,
+          "ids_authority_wait_time": 300,
+          "ids_renew_timeout": 120000
+        }
+      }
+    }
+  }
+}

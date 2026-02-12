@@ -1,0 +1,32 @@
+/reports/*.json
+__pycache__/
+*/__pycache__
+/.claude
+/.vscode
+/my_reports
+/reports
+
+# Maven
+/target/
+*.class
+*.jar
+*.war
+*.ear
+
+# IDE
+.idea/
+*.iml
+.project
+.classpath
+.settings/
+
+# Generated workloads and compiled queries
+/workloads/generated/
+/workloads/compiled/
+
+# Database storage
+/data/
+
+# OS
+.DS_Store
+Thumbs.db

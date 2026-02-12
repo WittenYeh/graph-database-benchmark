@@ -1,0 +1,45 @@
+# Stage 1: Build
+FROM maven:3.9-eclipse-temurin-21 AS builder
+WORKDIR /build
+
+# Copy parent POM and module POMs
+COPY pom.xml .
+COPY common/pom.xml common/
+COPY neo4j-benchmark/pom.xml neo4j-benchmark/
+COPY janusgraph-benchmark/pom.xml janusgraph-benchmark/
+COPY arango-benchmark/pom.xml arango-benchmark/
+COPY orientdb-benchmark/pom.xml orientdb-benchmark/
+COPY benchmark-cli/pom.xml benchmark-cli/
+
+# Download dependencies (cached layer)
+RUN mvn dependency:go-offline -B -pl common,neo4j-benchmark,benchmark-cli -am
+
+# Copy source code
+COPY common/src common/src
+COPY neo4j-benchmark/src neo4j-benchmark/src
+COPY benchmark-cli/src benchmark-cli/src
+
+# Build modules
+RUN mvn clean package -DskipTests -B -pl common,neo4j-benchmark,benchmark-cli -am
+
+# Stage 2: Runtime
+FROM eclipse-temurin:21-jre
+WORKDIR /app
+
+# Copy the CLI fat JAR
+COPY --from=builder /build/benchmark-cli/target/benchmark-cli-1.0-SNAPSHOT.jar /app/benchmark.jar
+
+# Copy configuration files
+COPY database-config.json /app/database-config.json
+COPY datasets.json /app/datasets.json
+COPY workloads/ /app/workloads/
+
+# Create directories
+RUN mkdir -p /app/reports /data/db
+
+# Mount points (graph-datasets and reports are mounted from host)
+# Note: /data/db is NOT a volume - it will be cleaned up with the container
+VOLUME ["/app/graph-datasets", "/app/reports"]
+
+ENTRYPOINT ["java", "-jar", "/app/benchmark.jar"]
+CMD ["--help"]

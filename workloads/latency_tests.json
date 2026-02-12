@@ -1,0 +1,31 @@
+{
+  "dataset": "coAuthorsDBLP",
+  "server_config": {
+    "threads": 8
+  },
+  "tasks": [
+    {
+      "name": "load_graph"
+    },
+    {
+      "name": "add_nodes_latency",
+      "ops": 5000
+    },
+    {
+      "name": "add_edges_latency",
+      "ops": 5000
+    },
+    {
+      "name": "delete_nodes_latency",
+      "ops": 1000
+    },
+    {
+      "name": "delete_edges_latency",
+      "ops": 1000
+    },
+    {
+      "name": "read_nbrs_latency",
+      "ops": 1000
+    }
+  ]
+}
