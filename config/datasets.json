@@ -1,0 +1,12 @@
+{
+  "root_dir": "./graph-datasets/",
+  "datasets": {
+    "coAuthorsDBLP": "coAuthorsDBLP/coAuthorsDBLP.mtx",
+    "delaunay_n13": "delaunay_n13/delaunay_n13.mtx",
+    "delaunay_n21": "delaunay_n21/delaunay_n21.mtx",
+    "cit-Patents": "cit-Patents/cit-Patents.mtx",
+    "hollywood-2009": "hollywood-2009/hollywood-2009.mtx",
+    "soc-orkut": "soc-orkut/soc-orkut.mtx",
+    "soc-livejournal": "soc-LiveJournal1/soc-LiveJournal1.mtx"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "neo4j": {
+    "docker_image": "bench-neo4j",
+    "dockerfile_path": "./docker/neo4j/Dockerfile",
+    "container_name": "neo4j-benchmark",
+    "api_port": 50080,
+    "query_language": "cypher",
+    "runtime": "java",
+    "config": {
+      "heap_size": "4G",
+      "page_cache": "2G"
+    }
+  },
+  "janusgraph": {
+    "docker_image": "bench-janusgraph",
+    "dockerfile_path": "./docker/janusgraph/Dockerfile",
+    "container_name": "janusgraph-benchmark",
+    "api_port": 50081,
+    "query_language": "gremlin",
+    "runtime": "java",
+    "config": {
+      "heap_size": "4G",
+      "storage_backend": "berkeleyje"
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "quick_test",
+  "server_config": {
+    "threads": 1
+  },
+  "tasks": [
+    { "name": "load_graph" },
+    { "name": "add_nodes_latency", "ops": 1000 },
+    { "name": "add_edges_latency", "ops": 1000 },
+    { "name": "read_nbrs_latency", "ops": 500 }
+  ]
+}

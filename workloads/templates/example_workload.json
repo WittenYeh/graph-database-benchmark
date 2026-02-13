@@ -1,0 +1,28 @@
+{
+  "name": "example_workload",
+  "server_config": {
+    "threads": 8
+  },
+  "tasks": [
+    { "name": "load_graph" },
+    { "name": "add_nodes_latency", "ops": 5000 },
+    { "name": "add_nodes_throughput", "ops": 20000, "client_threads": 8 },
+    { "name": "add_edges_latency", "ops": 5000 },
+    { "name": "add_edges_throughput", "ops": 20000, "client_threads": 8 },
+    { "name": "delete_nodes_latency", "ops": 1000, "copy_mode": true },
+    { "name": "delete_edges_latency", "ops": 1000 },
+    { "name": "read_nbrs_latency", "ops": 1000 },
+    { "name": "read_nbrs_throughput", "ops": 50000, "client_threads": 16 },
+    {
+      "name": "mixed_workload_latency",
+      "ops": 10000,
+      "ratios": {
+        "add_node": 0.1,
+        "add_edge": 0.2,
+        "delete_node": 0.05,
+        "delete_edge": 0.05,
+        "read_nbrs": 0.6
+      }
+    }
+  ]
+}

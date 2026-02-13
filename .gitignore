@@ -1,24 +1,42 @@
+# Reports and outputs
 /reports/*.json
+/reports/
+/my_reports/
+/visualizations/
+
+# Python
 __pycache__/
 */__pycache__
-/.claude
-/.vscode
-/my_reports
-/reports
-
-# Maven
-/target/
-*.class
-*.jar
-*.war
-*.ear
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+*.egg-info/
+dist/
+build/
 
 # IDE
+/.claude
+/.vscode
 .idea/
 *.iml
 .project
 .classpath
 .settings/
+*.swp
+*.swo
+*~
+
+# Maven
+/target/
+*/target/
+*.class
+*.jar
+*.war
+*.ear
 
 # Generated workloads and compiled queries
 /workloads/generated/
@@ -26,7 +44,15 @@ __pycache__/
 
 # Database storage
 /data/
+/tmp/
+
+# Docker
+.dockerignore
 
 # OS
 .DS_Store
 Thumbs.db
+*.log
+
+# Test outputs
+/test_reports/

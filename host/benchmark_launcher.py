@@ -1,0 +1,185 @@
+#!/usr/bin/env python3
+"""
+BenchmarkLauncher - Main entry point for graph database benchmarking
+"""
+import argparse
+import json
+import os
+import sys
+from pathlib import Path
+from typing import List, Dict, Any, Optional
+
+from compiler.workload_compiler import WorkloadCompiler
+from db.docker_manager import DockerManager
+from report.report_generator import ReportGenerator
+from dataset.dataset_loader import DatasetLoader
+from progress_server import ProgressServer
+
+
+class BenchmarkLauncher:
+    def __init__(self, args):
+        self.args = args
+        self.database_name = args.database_name
+        self.database_config = self._load_json(args.database_config)
+        self.dataset_config = self._load_json(args.dataset_config)
+        self.workload_config = self._load_json(args.workload_config)
+        self.output_dir = Path(args.output_dir)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Initialize components
+        self.docker_manager = DockerManager(self.database_config, args.rebuild)
+        self.workload_compiler = WorkloadCompiler(self.database_config)
+        self.dataset_loader = DatasetLoader(self.dataset_config)
+
+    def _load_json(self, filepath: str) -> Dict[str, Any]:
+        """Load JSON configuration file"""
+        with open(filepath, 'r') as f:
+            return json.load(f)
+
+    def _get_datasets_to_test(self) -> List[str]:
+        """Get list of datasets to test"""
+        if self.args.dataset_name:
+            return self.args.dataset_name if isinstance(self.args.dataset_name, list) else [self.args.dataset_name]
+
+        # Dataset must be specified via CLI
+        print("❌ Error: No dataset specified. Use --dataset-name to specify dataset(s)")
+        sys.exit(1)
+
+    def _get_workloads_to_test(self) -> List[str]:
+        """Get list of workload configs to test"""
+        if self.args.workload_name:
+            return [self.args.workload_name]
+        return [self.args.workload_config]
+
+    def run(self):
+        """Main execution flow"""
+        print(f"🚀 Starting benchmark for database: {self.database_name}")
+
+        # Get database configuration
+        if self.database_name not in self.database_config:
+            print(f"❌ Error: Database '{self.database_name}' not found in configuration")
+            sys.exit(1)
+
+        db_config = self.database_config[self.database_name]
+
+        # Get workload name from config
+        workload_name = self.workload_config.get('name', 'unnamed_workload')
+
+        # Start progress server
+        progress_server = ProgressServer(port=8888)
+        progress_server.start()
+        callback_url = progress_server.get_callback_url()
+
+        try:
+            # Build/rebuild Docker image if needed
+            print(f"\n📦 Preparing Docker image: {db_config['docker_image']}")
+            self.docker_manager.prepare_image(self.database_name, self.args.rebuild)
+
+            # Get datasets to test
+            datasets = self._get_datasets_to_test()
+
+            for dataset_name in datasets:
+                print(f"\n📊 Testing dataset: {dataset_name}")
+
+                # Get dataset path
+                dataset_path = self.dataset_loader.get_dataset_path(dataset_name)
+                if not dataset_path:
+                    print(f"⚠️  Warning: Dataset '{dataset_name}' not found, skipping...")
+                    continue
+
+                # Compile workload to database-specific queries
+                print(f"⚙️  Compiling workload to {db_config['query_language']}...")
+                compiled_dir = self.workload_compiler.compile_workload(
+                    self.workload_config,
+                    self.database_name,
+                    dataset_name,
+                    self.args.seed,
+                    dataset_path
+                )
+
+                # Start Docker container and run benchmark
+                print(f"🐳 Starting Docker container: {db_config['container_name']}")
+                container = self.docker_manager.start_container(
+                    self.database_name,
+                    dataset_path,
+                    compiled_dir
+                )
+
+                try:
+                    # Execute benchmark tasks
+                    print(f"⏱️  Executing benchmark tasks...")
+                    results = self.docker_manager.execute_benchmark(
+                        container,
+                        self.workload_config,
+                        dataset_name,
+                        dataset_path,
+                        callback_url
+                    )
+
+                    # Add workload name to metadata
+                    if 'metadata' not in results:
+                        results['metadata'] = {}
+                    results['metadata']['workload'] = workload_name
+
+                    # Save results
+                    output_file = self.output_dir / f"bench_{self.database_name}_{dataset_name}_{workload_name}.json"
+                    with open(output_file, 'w') as f:
+                        json.dump(results, f, indent=2)
+
+                    print(f"✅ Results saved to: {output_file}")
+
+                finally:
+                    # Stop and remove container
+                    print(f"🛑 Stopping container...")
+                    self.docker_manager.stop_container(container)
+
+            print(f"\n🎉 Benchmark completed!")
+
+        finally:
+            # Stop progress server
+            progress_server.stop()
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Graph Database Benchmark Tool',
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+
+    parser.add_argument('--database-name', required=True,
+                        choices=['neo4j', 'janusgraph'],
+                        help='Database to benchmark')
+
+    parser.add_argument('--database-config', default='config/database-config.json',
+                        help='Path to database configuration file')
+
+    parser.add_argument('--dataset-config', default='config/datasets.json',
+                        help='Path to dataset configuration file')
+
+    parser.add_argument('--dataset-name', nargs='+', required=True,
+                        help='Dataset name(s) to test')
+
+    parser.add_argument('--workload-config', default='workloads/templates/example_workload.json',
+                        help='Path to workload configuration file')
+
+    parser.add_argument('--workload-name',
+                        help='Specific workload name to run')
+
+    parser.add_argument('--output-dir', default='reports',
+                        help='Output directory for benchmark reports')
+
+    parser.add_argument('--seed', type=int,
+                        help='Random seed for reproducibility')
+
+    parser.add_argument('--rebuild', action='store_true',
+                        help='Force rebuild the Docker image')
+
+    args = parser.parse_args()
+
+    # Create and run launcher
+    launcher = BenchmarkLauncher(args)
+    launcher.run()
+
+
+if __name__ == '__main__':
+    main()

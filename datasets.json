@@ -1,7 +1,0 @@
-{
-    "root_dir": "./graph-datasets/",
-    "datasets": {
-        "coAuthorsDBLP": "coAuthorsDBLP/coAuthorsDBLP.mtx",
-        "delaunay_n13": "delaunay_n13/delaunay_n13.mtx"
-    }
-}
