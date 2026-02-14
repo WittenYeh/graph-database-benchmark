@@ -5,8 +5,11 @@
   },
   "tasks": [
     { "name": "load_graph" },
-    { "name": "add_nodes_latency", "ops": 1000 },
-    { "name": "add_edges_latency", "ops": 1000 },
-    { "name": "read_nbrs_latency", "ops": 500 }
+    { "name": "add_nodes_latency", "ops": 1280, "batch_size": 1280, "latency_test_mode": "batch" },
+    { "name": "add_nodes_latency", "ops": 1280, "latency_test_mode": "singleton" },
+    { "name": "add_edges_latency", "ops": 1280, "batch_size": 1280, "latency_test_mode": "batch" },
+    { "name": "add_edges_latency", "ops": 1280, "latency_test_mode": "singleton" },
+    { "name": "read_nbrs_latency", "ops": 1280, "batch_size": 1280, "latency_test_mode": "batch" },
+    { "name": "read_nbrs_latency", "ops": 1280, "latency_test_mode": "singleton" }
   ]
 }

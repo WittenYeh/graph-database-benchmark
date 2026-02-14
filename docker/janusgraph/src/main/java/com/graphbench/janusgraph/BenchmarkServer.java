@@ -20,6 +20,9 @@ public class BenchmarkServer {
     public static void main(String[] args) throws IOException {
         System.out.println("Starting JanusGraph Benchmark Server on port " + PORT);
 
+        // Clean up old database directory on startup
+        cleanupOldDatabase();
+
         // Initialize executor
         executor = new JanusGraphBenchmarkExecutor();
 
@@ -38,6 +41,29 @@ public class BenchmarkServer {
             server.stop(0);
             executor.shutdown();
         }));
+    }
+
+    private static void cleanupOldDatabase() {
+        String dbPath = "/tmp/janusgraph-benchmark-db";
+        File dbDir = new File(dbPath);
+        if (dbDir.exists()) {
+            System.out.println("Cleaning up old database directory: " + dbPath);
+            try {
+                deleteDirectory(dbDir);
+                System.out.println("Old database cleaned up successfully");
+            } catch (IOException e) {
+                System.err.println("Warning: Failed to clean up old database: " + e.getMessage());
+            }
+        }
+    }
+
+    private static void deleteDirectory(File directory) throws IOException {
+        if (directory.exists()) {
+            java.nio.file.Files.walk(directory.toPath())
+                .sorted(java.util.Comparator.reverseOrder())
+                .map(java.nio.file.Path::toFile)
+                .forEach(File::delete);
+        }
     }
 
     static class HealthHandler implements HttpHandler {

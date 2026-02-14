@@ -52,16 +52,24 @@ class WorkloadCompiler:
 
             # Save to JSON file
             output_file = output_dir / f"{idx:02d}_{task_name}.json"
+            metadata = {
+                'ops': task.get('ops', 0),
+                'client_threads': task.get('client_threads', 1),
+                'copy_mode': task.get('copy_mode', False),
+                'ratios': task.get('ratios', {})
+            }
+
+            # Add optional fields only if present
+            if 'batch_size' in task:
+                metadata['batch_size'] = task['batch_size']
+            if 'latency_test_mode' in task:
+                metadata['latency_test_mode'] = task['latency_test_mode']
+
             with open(output_file, 'w') as f:
                 json.dump({
                     'task_name': task_name,
                     'queries': queries,
-                    'metadata': {
-                        'ops': task.get('ops', 0),
-                        'client_threads': task.get('client_threads', 1),
-                        'copy_mode': task.get('copy_mode', False),
-                        'ratios': task.get('ratios', {})
-                    }
+                    'metadata': metadata
                 }, f, indent=2)
 
         return output_dir

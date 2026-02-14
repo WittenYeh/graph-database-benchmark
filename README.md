@@ -284,15 +284,16 @@ Example workload with multiple tasks:
   },
   "tasks": [
     { "name": "load_graph" },
-    { "name": "add_nodes_latency", "ops": 5000 },
+    { "name": "add_nodes_latency", "ops": 5000, "batch_size": 128 },
     { "name": "add_nodes_throughput", "ops": 20000, "client_threads": 8 },
-    { "name": "add_edges_latency", "ops": 5000 },
+    { "name": "add_edges_latency", "ops": 5000, "batch_size": 256 },
     { "name": "delete_nodes_latency", "ops": 1000, "copy_mode": true },
     { "name": "read_nbrs_latency", "ops": 1000 },
     { "name": "read_nbrs_throughput", "ops": 50000, "client_threads": 16 },
     {
       "name": "mixed_workload_latency",
       "ops": 10000,
+      "batch_size": 128,
       "ratios": {
         "add_node": 0.1,
         "add_edge": 0.2,
@@ -312,6 +313,7 @@ Example workload with multiple tasks:
 | `name` | string | required | Task name (see Supported Tasks below) |
 | `ops` | integer | required | Number of operations to execute |
 | `client_threads` | integer | 1 | Number of concurrent client threads |
+| `batch_size` | integer | 128 | Number of queries to execute in a single batch (for latency tests) |
 | `ratios` | object | - | Operation mix ratios for mixed workloads (must sum to 1.0) |
 | `copy_mode` | boolean | false | Reload original graph before executing this task |
 
@@ -321,15 +323,32 @@ Example workload with multiple tasks:
 
 Each task type has specific behavior and error handling semantics. The workload compiler uses **memory-efficient streaming** to sample nodes and edges from the dataset without loading the entire graph into memory.
 
-**NOTICE: Latency Test Execution**
+**Latency Test Execution**
 
-For latency tests (single-threaded execution), queries are executed serially with individual transactions per query:
+For latency tests (tasks ending with `_latency`), queries are executed serially in batches:
 
-- Each query is executed independently with its own transaction
-- Queries are executed sequentially (thread pool size = 1) to ensure strict serial execution
-- Individual query latencies are measured and reported (P50, P90, P95, P99, mean)
+- Queries are split into batches of size `batch_size` (default: 128)
+- Each batch is executed serially by calling `executeBatch`
+- **Neo4j**: All queries in a batch are executed within a single transaction
+- **JanusGraph**: All queries in a batch are executed transaction-free (no explicit transaction)
+- Latency is calculated as: `batch_execution_time / batch_size`
+- Individual per-operation latencies are reported (P50, P90, P95, P99, mean)
 
-For throughput tests (multi-threaded execution), queries are executed concurrently with individual transactions per query to maximize parallelism.
+**Throughput Test Execution**
+
+For throughput tests (tasks ending with `_throughput`), queries are executed concurrently in batches:
+
+- Queries are split into batches and distributed across `client_threads` threads
+- Each thread executes its assigned batch by calling `executeBatch`
+- **Neo4j**: Each batch is executed within a single transaction
+- **JanusGraph**: Each batch is executed transaction-free
+- Throughput is calculated as: `total_operations / total_parallel_execution_time`
+- Reports queries per second (QPS)
+
+**Key Differences Between Databases**
+
+- **Neo4j**: Cannot support transaction-free operations. All queries in a batch are wrapped in a single transaction for both latency and throughput tests.
+- **JanusGraph**: Supports transaction-free operations. Queries in a batch are executed without explicit transactions, allowing for better performance in certain workloads.
 
 #### 1. `load_graph`
 - **Description**: Bulk-loads the entire dataset from MTX file
@@ -431,6 +450,7 @@ This approach allows benchmarking on very large datasets (millions of edges) wit
 | `name` | string | required | Task name (see task list above) |
 | `ops` | integer | required | Number of operations to execute |
 | `client_threads` | integer | 1 | Number of concurrent client threads (for throughput tasks) |
+| `batch_size` | integer | 128 | Number of queries to execute in a single batch (affects transaction granularity) |
 | `ratios` | object | - | Operation mix ratios for mixed workloads (must sum to 1.0) |
 | `copy_mode` | boolean | false | Reload original graph before executing this task |
 
@@ -515,11 +535,25 @@ Example output:
       "status": "success",
       "durationSeconds": 8.234567,
       "totalOps": 50000,
-      "clientThreads": 16
+      "clientThreads": 16,
+      "throughputQps": 6071.23
     }
   ]
 }
 ```
+
+### Metrics Explanation
+
+**Latency Metrics** (for `_latency` tasks):
+- `minUs`, `maxUs`, `meanUs`: Minimum, maximum, and mean latency in microseconds
+- `medianUs`, `p50Us`: Median (50th percentile) latency
+- `p90Us`, `p95Us`, `p99Us`: 90th, 95th, and 99th percentile latencies
+- Calculated as: `batch_execution_time / batch_size`
+
+**Throughput Metrics** (for `_throughput` tasks):
+- `throughputQps`: Queries per second
+- Calculated as: `totalOps / durationSeconds`
+- Measures the rate of operations completed during parallel execution
 
 ## How It Works
 
@@ -530,10 +564,28 @@ Example output:
    - Initializes embedded database
    - Loads dataset from MTX file
    - Executes each workload task sequentially
-   - Measures latency/throughput with pure execution time (no network overhead)
+   - **Latency tests**: Executes queries serially in batches, measures per-operation latency
+   - **Throughput tests**: Executes queries concurrently in batches, measures queries per second
+   - Measures pure execution time (no network overhead)
    - Returns results via HTTP API
 5. **Result Collection**: Host collects results and saves to JSON file
 6. **Visualization**: ReportGenerator creates comparison charts using Seaborn
+
+### Batch Execution Details
+
+**For Latency Tests:**
+- Queries are divided into batches of `batch_size` (default: 128)
+- Each batch is executed serially
+- Neo4j: Batch queries are wrapped in a single transaction
+- JanusGraph: Batch queries are executed transaction-free
+- Latency = batch_execution_time / batch_size
+
+**For Throughput Tests:**
+- Queries are divided into batches and distributed across threads
+- Each thread executes its batch in parallel
+- Neo4j: Each batch is wrapped in a single transaction
+- JanusGraph: Each batch is executed transaction-free
+- Throughput = total_operations / total_parallel_execution_time
 
 ## Database Versions
 

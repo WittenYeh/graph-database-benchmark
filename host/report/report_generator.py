@@ -31,7 +31,7 @@ class ReportGenerator:
 
     def _plot_latency_grouped_bar(self, reports: List[Dict], output_dir: Path, dataset_name: str, workload_name: str):
         """Plot latency comparison as grouped bar chart"""
-        # Collect data: task -> database -> latency metrics
+        # Collect data: task -> database -> mean latency
         task_data = {}
         databases = set()
 
@@ -45,14 +45,8 @@ class ReportGenerator:
                     if task not in task_data:
                         task_data[task] = {}
 
-                    latency = result['latency']
-                    task_data[task][db_name] = {
-                        'p50': latency['p50Us'],
-                        'p90': latency['p90Us'],
-                        'p95': latency['p95Us'],
-                        'p99': latency['p99Us'],
-                        'mean': latency['meanUs']
-                    }
+                    # latency is now just a number (meanUs)
+                    task_data[task][db_name] = result['latency']
 
         if not task_data:
             return
@@ -60,37 +54,30 @@ class ReportGenerator:
         databases = sorted(list(databases))
         tasks = sorted(list(task_data.keys()))
 
-        # Create subplots for different percentiles
-        fig, axes = plt.subplots(2, 2, figsize=(18, 12))
-        fig.suptitle(f'Latency Comparison - {dataset_name} / {workload_name}', fontsize=16, fontweight='bold')
+        # Create single bar chart for mean latency
+        fig, ax = plt.subplots(figsize=(14, 8))
 
-        percentiles = [('p50', 'P50'), ('p90', 'P90'), ('p95', 'P95'), ('p99', 'P99')]
+        x = np.arange(len(tasks))
+        width = 0.8 / len(databases)
 
-        for idx, (metric, label) in enumerate(percentiles):
-            ax = axes[idx // 2, idx % 2]
+        for i, db in enumerate(databases):
+            values = []
+            for task in tasks:
+                if db in task_data[task]:
+                    values.append(task_data[task][db])
+                else:
+                    values.append(0)
 
-            # Prepare data for grouped bar chart
-            x = np.arange(len(tasks))
-            width = 0.8 / len(databases)
+            offset = (i - len(databases) / 2) * width + width / 2
+            ax.bar(x + offset, values, width, label=db)
 
-            for i, db in enumerate(databases):
-                values = []
-                for task in tasks:
-                    if db in task_data[task]:
-                        values.append(task_data[task][db][metric])
-                    else:
-                        values.append(0)
-
-                offset = (i - len(databases) / 2) * width + width / 2
-                ax.bar(x + offset, values, width, label=db)
-
-            ax.set_xlabel('Task', fontsize=11)
-            ax.set_ylabel('Latency (μs)', fontsize=11)
-            ax.set_title(f'{label} Latency', fontsize=12, fontweight='bold')
-            ax.set_xticks(x)
-            ax.set_xticklabels(tasks, rotation=45, ha='right')
-            ax.legend()
-            ax.grid(axis='y', alpha=0.3)
+        ax.set_xlabel('Task', fontsize=12)
+        ax.set_ylabel('Mean Latency (μs)', fontsize=12)
+        ax.set_title(f'Mean Latency Comparison - {dataset_name} / {workload_name}', fontsize=14, fontweight='bold')
+        ax.set_xticks(x)
+        ax.set_xticklabels(tasks, rotation=45, ha='right')
+        ax.legend()
+        ax.grid(axis='y', alpha=0.3)
 
         plt.tight_layout()
         plt.savefig(output_dir / f'latency_comparison_{dataset_name}_{workload_name}.png', dpi=300, bbox_inches='tight')

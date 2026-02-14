@@ -20,7 +20,6 @@ public class JanusGraphBenchmarkExecutor extends AbstractBenchmarkExecutor {
 
     private JanusGraph graph;
     private GraphTraversalSource g;
-    private List<Object> vertexIds = new ArrayList<>();
     private ScriptEngine gremlinEngine;
 
     @Override
@@ -77,41 +76,10 @@ public class JanusGraphBenchmarkExecutor extends AbstractBenchmarkExecutor {
     }
 
     @Override
-    public Map<String, Object> executeTask(String taskName, List<String> queries, int clientThreads, String datasetPath) throws Exception {
-        Map<String, Object> result = new HashMap<>();
-        result.put("task", taskName);
-
-        long startTime = System.nanoTime();
-
-        try {
-            if ("load_graph".equals(taskName)) {
-                loadGraph(datasetPath);
-                result.put("status", "success");
-                result.put("totalOps", vertexIds.size());
-                result.put("clientThreads", 0);
-            } else if (clientThreads == 1) {
-                // Latency test
-                executeLatencyTest(queries, result);
-            } else {
-                // Throughput test
-                executeThroughputTest(queries, clientThreads, result);
-            }
-        } catch (Exception e) {
-            result.put("status", "failed");
-            result.put("error", e.getMessage());
-            e.printStackTrace();
-        }
-
-        long endTime = System.nanoTime();
-        double durationSeconds = (endTime - startTime) / 1_000_000_000.0;
-        result.put("durationSeconds", durationSeconds);
-
-        return result;
-    }
-
-    private void loadGraph(String datasetPath) throws IOException {
+    protected void loadGraph(String datasetPath) throws IOException {
         System.out.println("Loading graph from: " + datasetPath);
-        vertexIds.clear();
+        graphNodeIds.clear();
+        graphEdgeCount = 0;
 
         try (BufferedReader reader = new BufferedReader(new FileReader(datasetPath))) {
             String line;
@@ -147,7 +115,8 @@ public class JanusGraphBenchmarkExecutor extends AbstractBenchmarkExecutor {
             }
             g.tx().commit();
 
-            vertexIds.addAll(vertexIdMap.values());
+            graphNodeIds.addAll(vertexIdMap.values());
+            graphEdgeCount = edges.size();
 
             // Create edges in batches
             int batchSize = 10000;
@@ -168,24 +137,6 @@ public class JanusGraphBenchmarkExecutor extends AbstractBenchmarkExecutor {
         }
     }
 
-    private void executeLatencyTest(List<String> queries, Map<String, Object> result) throws InterruptedException {
-        // For latency tests, execute queries serially with individual transactions
-        List<Double> latencies = executeConcurrent(queries, 1);
-
-        result.put("status", "success");
-        result.put("totalOps", queries.size());
-        result.put("clientThreads", 1);
-        result.put("latency", calculateLatencyStats(latencies));
-    }
-
-    private void executeThroughputTest(List<String> queries, int clientThreads, Map<String, Object> result) throws InterruptedException {
-        executeConcurrent(queries, clientThreads);
-
-        result.put("status", "success");
-        result.put("totalOps", queries.size());
-        result.put("clientThreads", clientThreads);
-    }
-
     @Override
     public void executeQuery(String query) {
         // Query is fully determined by host, execute directly using Gremlin script engine
@@ -204,25 +155,20 @@ public class JanusGraphBenchmarkExecutor extends AbstractBenchmarkExecutor {
     }
 
     @Override
-    public byte[] snapshotGraph() {
-        try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
-             ObjectOutputStream oos = new ObjectOutputStream(baos)) {
-            oos.writeObject(new ArrayList<>(vertexIds));
-            return baos.toByteArray();
-        } catch (IOException e) {
-            e.printStackTrace();
-            return null;
-        }
-    }
-
-    @Override
-    public void restoreGraph(byte[] snapshot) {
-        try (ByteArrayInputStream bais = new ByteArrayInputStream(snapshot);
-             ObjectInputStream ois = new ObjectInputStream(bais)) {
-            vertexIds = (List<Object>) ois.readObject();
+    protected double executeBatch(List<String> queries) {
+        // For JanusGraph: execute all queries transaction-free (no explicit transaction)
+        long startNs = System.nanoTime();
+        try {
+            Bindings bindings = gremlinEngine.createBindings();
+            bindings.put("g", g);
+            for (String query : queries) {
+                gremlinEngine.eval(query, bindings);
+            }
         } catch (Exception e) {
-            e.printStackTrace();
+            // Silent failure as per specification
         }
+        long endNs = System.nanoTime();
+        return (endNs - startNs) / 1000.0; // Convert nanoseconds to microseconds
     }
 
     @Override

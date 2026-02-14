@@ -35,10 +35,12 @@ public interface GraphBenchmarkExecutor {
      * @param queries List of database-specific query strings to execute
      * @param clientThreads Number of client threads for concurrent execution
      * @param datasetPath Path to the dataset file (for load_graph task)
+     * @param batchSize Number of queries to execute in a single batch
+     * @param latencyTestMode Mode for latency testing: "batch" or "singleton"
      * @return Task execution results including duration, latency stats, etc.
      * @throws Exception if task execution fails
      */
-    Map<String, Object> executeTask(String taskName, List<String> queries, int clientThreads, String datasetPath) throws Exception;
+    Map<String, Object> executeTask(String taskName, List<String> queries, int clientThreads, String datasetPath, int batchSize, String latencyTestMode) throws Exception;
 
     /**
      * Execute a single query string.
