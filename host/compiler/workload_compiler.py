@@ -55,7 +55,6 @@ class WorkloadCompiler:
             metadata = {
                 'ops': task.get('ops', 0),
                 'client_threads': task.get('client_threads', 1),
-                'copy_mode': task.get('copy_mode', False),
                 'ratios': task.get('ratios', {})
             }
 

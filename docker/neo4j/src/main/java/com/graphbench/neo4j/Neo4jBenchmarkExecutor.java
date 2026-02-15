@@ -4,6 +4,7 @@ import com.graphbench.api.AbstractBenchmarkExecutor;
 import org.neo4j.dbms.api.DatabaseManagementService;
 import org.neo4j.dbms.api.DatabaseManagementServiceBuilder;
 import org.neo4j.graphdb.*;
+import org.openjdk.jmh.infra.Blackhole;
 
 import java.io.*;
 import java.nio.file.*;
@@ -15,10 +16,17 @@ public class Neo4jBenchmarkExecutor extends AbstractBenchmarkExecutor {
 
     private DatabaseManagementService managementService;
     private GraphDatabaseService db;
+    private final Blackhole blackhole = new Blackhole("Today's password is swordfish. I understand the consequences of misusing this class.");
 
     @Override
     protected String getDatabaseName() {
         return "neo4j";
+    }
+
+    @Override
+    protected String getWarmupQuery() {
+        // Simple query that doesn't depend on data
+        return "RETURN 1";
     }
 
     @Override
@@ -110,14 +118,12 @@ public class Neo4jBenchmarkExecutor extends AbstractBenchmarkExecutor {
     }
 
     @Override
-    public void executeQuery(String query) {
+    public void executeSingleton(String query) {
         // Query is fully determined by host, no placeholder replacement needed
         try (Transaction tx = db.beginTx()) {
-            // Consume results without converting to string (performance optimization)
+            // Consume results using Blackhole (performance optimization)
             Result result = tx.execute(query);
-            while (result.hasNext()) {
-                result.next();
-            }
+            blackhole.consume(result);
             tx.commit();
         }
     }
@@ -128,11 +134,9 @@ public class Neo4jBenchmarkExecutor extends AbstractBenchmarkExecutor {
         long startNs = System.nanoTime();
         try (Transaction tx = db.beginTx()) {
             for (String query : queries) {
-                // Consume results without converting to string (performance optimization)
                 Result result = tx.execute(query);
-                while (result.hasNext()) {
-                    result.next();
-                }
+                // Consume results using Blackhole
+                blackhole.consume(result);
             }
             tx.commit();
         }

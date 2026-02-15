@@ -21,10 +21,17 @@ public class JanusGraphBenchmarkExecutor extends AbstractBenchmarkExecutor {
     private JanusGraph graph;
     private GraphTraversalSource g;
     private ScriptEngine gremlinEngine;
+    private Bindings bindings; // Reuse bindings to avoid repeated creation
 
     @Override
     protected String getDatabaseName() {
         return "janusgraph";
+    }
+
+    @Override
+    protected String getWarmupQuery() {
+        // Simple query that doesn't depend on data
+        return "g.inject(1)";
     }
 
     @Override
@@ -62,6 +69,10 @@ public class JanusGraphBenchmarkExecutor extends AbstractBenchmarkExecutor {
         }
 
         System.out.println("Groovy script engine initialized successfully");
+
+        // Create reusable bindings
+        bindings = gremlinEngine.createBindings();
+        bindings.put("g", g);
 
         // Create schema
         JanusGraphManagement mgmt = graph.openManagement();
@@ -138,11 +149,10 @@ public class JanusGraphBenchmarkExecutor extends AbstractBenchmarkExecutor {
     }
 
     @Override
-    public void executeQuery(String query) {
+    public void executeSingleton(String query) {
         // Query is fully determined by host, execute directly using Gremlin script engine
         try {
-            Bindings bindings = gremlinEngine.createBindings();
-            bindings.put("g", g);
+            // Reuse bindings instead of creating new ones
             gremlinEngine.eval(query, bindings);
             g.tx().commit();
         } catch (Exception e) {
@@ -159,8 +169,7 @@ public class JanusGraphBenchmarkExecutor extends AbstractBenchmarkExecutor {
         // For JanusGraph: execute all queries transaction-free (no explicit transaction)
         long startNs = System.nanoTime();
         try {
-            Bindings bindings = gremlinEngine.createBindings();
-            bindings.put("g", g);
+            // Reuse bindings instead of creating new ones
             for (String query : queries) {
                 gremlinEngine.eval(query, bindings);
             }
@@ -168,7 +177,7 @@ public class JanusGraphBenchmarkExecutor extends AbstractBenchmarkExecutor {
             // Silent failure as per specification
         }
         long endNs = System.nanoTime();
-        return (endNs - startNs) / 1000.0; // Convert nanoseconds to microseconds
+        return (endNs - startNs) / 1000.0; // Convert nanoseconds to microseconds (us)
     }
 
     @Override

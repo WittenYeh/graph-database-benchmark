@@ -39,6 +39,13 @@ public abstract class AbstractBenchmarkExecutor implements GraphBenchmarkExecuto
      */
     protected abstract void loadGraph(String datasetPath) throws Exception;
 
+    /**
+     * Get a simple, fixed query for JIT warm-up.
+     * This should be a very simple query that doesn't depend on actual data.
+     * Example: "RETURN 1" for Cypher, "g.V().limit(0)" for Gremlin
+     */
+    protected abstract String getWarmupQuery();
+
     @Override
     public Map<String, Object> executeTask(String taskName, List<String> queries, int clientThreads, String datasetPath, int batchSize, String latencyTestMode) throws Exception {
         Map<String, Object> result = new HashMap<>();
@@ -68,7 +75,7 @@ public abstract class AbstractBenchmarkExecutor implements GraphBenchmarkExecuto
                 executeLatencyTest(queries, batchSize, latencyTestMode, result);
             } else if (taskName.contains("throughput")) {
                 // Throughput test
-                executeThroughputTest(queries, clientThreads, batchSize, result);
+                executeThroughputTest(queries, clientThreads, batchSize, latencyTestMode, result);
             }
         } catch (Exception e) {
             result.put("status", "failed");
@@ -88,15 +95,15 @@ public abstract class AbstractBenchmarkExecutor implements GraphBenchmarkExecuto
      */
     protected void executeLatencyTest(List<String> queries, int batchSize, String latencyTestMode, Map<String, Object> result) {
         // JIT warm-up: run a few queries to warm up the JVM
-        warmupJIT(queries, batchSize, latencyTestMode);
+        warmupJITSerial(null, latencyTestMode, batchSize);
 
         List<Double> latencies;
         if ("singleton".equals(latencyTestMode)) {
-            latencies = executeSingleton(queries);
+            latencies = executeSerialSingleton(queries);
             result.put("latencyTestMode", "singleton");
             result.put("batchSize", 1);
         } else {
-            latencies = executeSerial(queries, batchSize);
+            latencies = executeSerialBatch(queries, batchSize);
             result.put("latencyTestMode", "batch");
             result.put("batchSize", batchSize);
         }
@@ -108,66 +115,99 @@ public abstract class AbstractBenchmarkExecutor implements GraphBenchmarkExecuto
     }
 
     /**
-     * Warm up JIT compiler before actual benchmark.
-     * Runs a small subset of queries to trigger JIT compilation.
+     * Warm up JIT compiler for serial execution.
+     * Runs a fixed simple query 100 times to trigger JIT compilation.
      */
-    protected void warmupJIT(List<String> queries, int batchSize, String latencyTestMode) {
-        int warmupOps = Math.min(100, queries.size() / 10); // 10% of queries or 100, whichever is smaller
-        if (warmupOps == 0) return;
+    protected void warmupJITSerial(String callbackUrl, String latencyTestMode, int batchSize) {
+        int warmupOps = 100;
 
-        System.out.println("JIT warm-up: running " + warmupOps + " operations...");
-        List<String> warmupQueries = queries.subList(0, warmupOps);
+        // Send warmup start callback
+        sendWarmupCallback(callbackUrl, "warmup_start", latencyTestMode, batchSize);
+
+        System.out.println("JIT warm-up (serial): running " + warmupOps + " operations (mode: " + latencyTestMode + ")...");
+        String warmupQuery = getWarmupQuery();
 
         try {
             if ("singleton".equals(latencyTestMode)) {
-                for (String query : warmupQueries) {
-                    executeQuery(query);
+                // Warm up singleton pattern
+                for (int i = 0; i < warmupOps; i++) {
+                    executeSingleton(warmupQuery);
                 }
             } else {
-                // Warm up with batches
-                for (int i = 0; i < warmupQueries.size(); i += batchSize) {
-                    int end = Math.min(i + batchSize, warmupQueries.size());
-                    executeBatch(warmupQueries.subList(i, end));
+                // Warm up batch pattern
+                List<String> warmupBatch = new ArrayList<>(batchSize);
+                for (int i = 0; i < batchSize; i++) {
+                    warmupBatch.add(warmupQuery);
+                }
+                for (int i = 0; i < warmupOps / batchSize; i++) {
+                    executeBatch(warmupBatch);
                 }
             }
         } catch (Exception e) {
             // Ignore warm-up errors
         }
+
         System.out.println("JIT warm-up completed");
+
+        // Send warmup complete callback
+        sendWarmupCallback(callbackUrl, "warmup_complete", latencyTestMode, batchSize);
+    }
+
+    /**
+     * Warm up JIT compiler for concurrent execution.
+     */
+    protected void warmupJITConcurrent(String callbackUrl, String latencyTestMode, int batchSize, int clientThreads) throws InterruptedException {
+        int warmupOps = 100;
+
+        // Send warmup start callback
+        sendWarmupCallback(callbackUrl, "warmup_start", latencyTestMode, batchSize);
+
+        System.out.println("JIT warm-up (concurrent): running " + warmupOps + " operations (mode: " + latencyTestMode + ", threads: " + clientThreads + ")...");
+        String warmupQuery = getWarmupQuery();
+
+        try {
+            List<String> warmupQueries = new ArrayList<>(warmupOps);
+            for (int i = 0; i < warmupOps; i++) {
+                warmupQueries.add(warmupQuery);
+            }
+
+            if ("singleton".equals(latencyTestMode)) {
+                executeConcurrentSingleton(warmupQueries, clientThreads);
+            } else {
+                executeConcurrentBatch(warmupQueries, clientThreads, batchSize);
+            }
+        } catch (Exception e) {
+            // Ignore warm-up errors
+        }
+
+        System.out.println("JIT warm-up completed");
+
+        // Send warmup complete callback
+        sendWarmupCallback(callbackUrl, "warmup_complete", latencyTestMode, batchSize);
     }
 
     /**
      * Execute throughput test with queries.
      */
-    protected void executeThroughputTest(List<String> queries, int clientThreads, int batchSize, Map<String, Object> result) throws InterruptedException {
+    protected void executeThroughputTest(List<String> queries, int clientThreads, int batchSize, String latencyTestMode, Map<String, Object> result) throws InterruptedException {
         // JIT warm-up: run a few queries to warm up the JVM
-        warmupJITThroughput(queries, clientThreads);
+        warmupJITConcurrent(null, latencyTestMode, batchSize, clientThreads);
 
-        double durationSeconds = executeConcurrent(queries, clientThreads);
+        double durationSeconds;
+        if ("singleton".equals(latencyTestMode)) {
+            durationSeconds = executeConcurrentSingleton(queries, clientThreads);
+            result.put("latencyTestMode", "singleton");
+            result.put("batchSize", 1);
+        } else {
+            durationSeconds = executeConcurrentBatch(queries, clientThreads, batchSize);
+            result.put("latencyTestMode", "batch");
+            result.put("batchSize", batchSize);
+        }
 
         result.put("status", "success");
         result.put("totalOps", queries.size());
         result.put("clientThreads", clientThreads);
-        result.put("batchSize", batchSize);
         result.put("throughputQps", queries.size() / durationSeconds);
-    }
-
-    /**
-     * Warm up JIT compiler for throughput test.
-     */
-    protected void warmupJITThroughput(List<String> queries, int clientThreads) throws InterruptedException {
-        int warmupOps = Math.min(100, queries.size() / 10);
-        if (warmupOps == 0) return;
-
-        System.out.println("JIT warm-up (throughput): running " + warmupOps + " operations...");
-        List<String> warmupQueries = queries.subList(0, warmupOps);
-
-        try {
-            executeConcurrent(warmupQueries, clientThreads);
-        } catch (Exception e) {
-            // Ignore warm-up errors
-        }
-        System.out.println("JIT warm-up completed");
     }
 
     @Override
@@ -201,7 +241,6 @@ public abstract class AbstractBenchmarkExecutor implements GraphBenchmarkExecuto
 
         // Execute tasks
         List<Map<String, Object>> results = new ArrayList<>();
-        byte[] originalGraphSnapshot = null;
 
         for (int i = 0; i < workloadFiles.length; i++) {
             File workloadFile = workloadFiles[i];
@@ -216,15 +255,9 @@ public abstract class AbstractBenchmarkExecutor implements GraphBenchmarkExecuto
             String taskName = (String) workload.get("task_name");
             List<String> queries = (List<String>) workload.get("queries");
             Map<String, Object> taskMetadata = (Map<String, Object>) workload.get("metadata");
-            boolean copyMode = (Boolean) taskMetadata.getOrDefault("copy_mode", false);
             int clientThreads = ((Double) taskMetadata.getOrDefault("client_threads", 1.0)).intValue();
             int batchSize = ((Double) taskMetadata.getOrDefault("batch_size", 128.0)).intValue();
             String latencyTestMode = (String) taskMetadata.getOrDefault("latency_test_mode", "batch");
-
-            // Handle copy mode
-            if (copyMode && originalGraphSnapshot != null) {
-                restoreGraph(originalGraphSnapshot);
-            }
 
             // Send task start callback
             sendProgressCallback(callbackUrl, "task_start", taskName, i, workloadFiles.length, workloadFile.getName(), 0, null);
@@ -243,11 +276,6 @@ public abstract class AbstractBenchmarkExecutor implements GraphBenchmarkExecuto
                 System.err.println("❌ load_graph task failed, stopping benchmark execution");
                 String error = (String) result.get("error");
                 throw new RuntimeException("load_graph failed: " + error);
-            }
-
-            // Save snapshot after load_graph
-            if ("load_graph".equals(taskName)) {
-                originalGraphSnapshot = snapshotGraph();
             }
         }
 
@@ -268,6 +296,167 @@ public abstract class AbstractBenchmarkExecutor implements GraphBenchmarkExecuto
         }
 
         return latencies.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
+    }
+
+    /**
+     * Execute queries serially in singleton mode for latency testing.
+     * Each query is executed individually with its own transaction.
+     * Returns list of per-operation latencies in microseconds.
+     */
+    protected List<Double> executeSerialSingleton(List<String> queries) {
+        List<Double> latencies = new ArrayList<>();
+
+        for (String query : queries) {
+            try {
+                long startNs = System.nanoTime();
+                executeSingleton(query);
+                long endNs = System.nanoTime();
+                double latencyUs = (endNs - startNs) / 1000.0;
+                latencies.add(latencyUs);
+            } catch (Exception e) {
+                // Silent failure as per specification
+            }
+        }
+
+        return latencies;
+    }
+
+    /**
+     * Execute queries serially in batch mode for latency testing.
+     * Splits queries into batches and executes each batch serially.
+     * Each batch calls executeBatch to execute all queries in the batch.
+     * Returns list of per-operation latencies in microseconds.
+     */
+    protected List<Double> executeSerialBatch(List<String> queries, int batchSize) {
+        List<Double> latencies = new ArrayList<>();
+
+        for (int i = 0; i < queries.size(); i += batchSize) {
+            int end = Math.min(i + batchSize, queries.size());
+            List<String> batch = queries.subList(i, end);
+
+            try {
+                double batchLatencyUs = executeBatch(batch);
+                // Calculate per-operation latency for this batch
+                double perOpLatencyUs = batchLatencyUs / batch.size();
+                // Add per-operation latency for each query in the batch
+                for (int j = 0; j < batch.size(); j++) {
+                    latencies.add(perOpLatencyUs);
+                }
+            } catch (Exception e) {
+                // Silent failure as per specification
+            }
+        }
+
+        return latencies;
+    }
+
+    /**
+     * Execute queries concurrently in singleton mode for throughput testing.
+     * Each query is executed individually with its own transaction.
+     * Returns total execution time in seconds.
+     */
+    protected double executeConcurrentSingleton(List<String> queries, int clientThreads) throws InterruptedException {
+        ExecutorService executor = Executors.newFixedThreadPool(clientThreads);
+        CountDownLatch latch = new CountDownLatch(queries.size());
+
+        long startNs = System.nanoTime();
+
+        // Submit each query as an independent task
+        for (String query : queries) {
+            executor.submit(() -> {
+                try {
+                    executeSingleton(query);
+                } catch (Exception e) {
+                    // Silent failure as per specification
+                } finally {
+                    latch.countDown();
+                }
+            });
+        }
+
+        latch.await();
+        long endNs = System.nanoTime();
+        executor.shutdown();
+
+        return (endNs - startNs) / 1_000_000_000.0;
+    }
+
+    /**
+     * Execute queries concurrently in batch mode for throughput testing.
+     * Splits queries into batches and assigns each batch to a thread.
+     * Each thread calls executeBatch to execute its assigned batch.
+     * Returns total execution time in seconds.
+     */
+    protected double executeConcurrentBatch(List<String> queries, int clientThreads, int batchSize) throws InterruptedException {
+        ExecutorService executor = Executors.newFixedThreadPool(clientThreads);
+
+        // Split queries into batches
+        List<List<String>> batches = new ArrayList<>();
+        for (int i = 0; i < queries.size(); i += batchSize) {
+            int end = Math.min(i + batchSize, queries.size());
+            batches.add(queries.subList(i, end));
+        }
+
+        CountDownLatch latch = new CountDownLatch(batches.size());
+
+        long startNs = System.nanoTime();
+
+        for (List<String> batch : batches) {
+            executor.submit(() -> {
+                try {
+                    executeBatch(batch);
+                } catch (Exception e) {
+                    // Silent failure as per specification
+                } finally {
+                    latch.countDown();
+                }
+            });
+        }
+
+        latch.await();
+        long endNs = System.nanoTime();
+        executor.shutdown();
+
+        return (endNs - startNs) / 1_000_000_000.0;
+    }
+
+    /**
+     * Send warmup progress callback to host.
+     */
+    protected void sendWarmupCallback(String callbackUrl, String event, String mode, int batchSize) {
+        if (callbackUrl == null || callbackUrl.isEmpty()) {
+            return;
+        }
+
+        try {
+            java.net.URL url = new java.net.URL(callbackUrl);
+            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "application/json");
+            conn.setDoOutput(true);
+            conn.setConnectTimeout(2000);
+            conn.setReadTimeout(2000);
+
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("event", event);
+            payload.put("warmup_mode", mode);
+            payload.put("batch_size", batchSize);
+            payload.put("timestamp", System.currentTimeMillis());
+
+            String jsonPayload = gson.toJson(payload);
+            try (OutputStream os = conn.getOutputStream()) {
+                os.write(jsonPayload.getBytes(StandardCharsets.UTF_8));
+            }
+
+            int responseCode = conn.getResponseCode();
+            if (responseCode != 200) {
+                System.err.println("⚠️  Warmup callback failed with status: " + responseCode);
+            }
+
+            conn.disconnect();
+        } catch (Exception e) {
+            System.err.println("⚠️  Failed to send warmup callback: " + e.getMessage());
+        }
     }
 
     /**
@@ -318,118 +507,4 @@ public abstract class AbstractBenchmarkExecutor implements GraphBenchmarkExecuto
         }
     }
 
-    /**
-     * Execute queries serially for latency testing.
-     * Splits queries into batches and executes each batch serially.
-     * Each batch calls executeBatch to execute all queries in the batch.
-     * Returns list of per-operation latencies in microseconds.
-     */
-    protected List<Double> executeSerial(List<String> queries, int batchSize) {
-        List<Double> latencies = new ArrayList<>();
-
-        for (int i = 0; i < queries.size(); i += batchSize) {
-            int end = Math.min(i + batchSize, queries.size());
-            List<String> batch = queries.subList(i, end);
-
-            try {
-                double batchLatencyUs = executeBatch(batch);
-                // Calculate per-operation latency for this batch
-                double perOpLatencyUs = batchLatencyUs / batch.size();
-                // Add per-operation latency for each query in the batch
-                for (int j = 0; j < batch.size(); j++) {
-                    latencies.add(perOpLatencyUs);
-                }
-            } catch (Exception e) {
-                // Silent failure as per specification
-            }
-        }
-
-        return latencies;
-    }
-
-    /**
-     * Execute queries serially in singleton mode for latency testing.
-     * Each query is executed individually with its own transaction.
-     * Returns list of per-operation latencies in microseconds.
-     */
-    protected List<Double> executeSingleton(List<String> queries) {
-        List<Double> latencies = new ArrayList<>();
-
-        for (String query : queries) {
-            try {
-                long startNs = System.nanoTime();
-                executeQuery(query);
-                long endNs = System.nanoTime();
-                double latencyUs = (endNs - startNs) / 1000.0;
-                latencies.add(latencyUs);
-            } catch (Exception e) {
-                // Silent failure as per specification
-            }
-        }
-
-        return latencies;
-    }
-
-    /**
-     * Execute queries concurrently for throughput testing.
-     * Splits queries into batches and assigns each batch to a thread.
-     * Each thread calls executeBatch to execute its assigned batch.
-     * Returns total execution time in seconds.
-     */
-    protected double executeConcurrent(List<String> queries, int clientThreads) throws InterruptedException {
-        ExecutorService executor = Executors.newFixedThreadPool(clientThreads);
-
-        // Split queries into batches for each thread
-        List<List<String>> batches = new ArrayList<>();
-        int batchSize = (int) Math.ceil((double) queries.size() / clientThreads);
-
-        for (int i = 0; i < queries.size(); i += batchSize) {
-            int end = Math.min(i + batchSize, queries.size());
-            batches.add(queries.subList(i, end));
-        }
-
-        CountDownLatch latch = new CountDownLatch(batches.size());
-
-        long startNs = System.nanoTime();
-
-        for (List<String> batch : batches) {
-            executor.submit(() -> {
-                try {
-                    executeBatch(batch);
-                } catch (Exception e) {
-                    // Silent failure as per specification
-                } finally {
-                    latch.countDown();
-                }
-            });
-        }
-
-        latch.await();
-        long endNs = System.nanoTime();
-        executor.shutdown();
-
-        return (endNs - startNs) / 1_000_000_000.0;
-    }
-
-    @Override
-    public byte[] snapshotGraph() {
-        try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
-             ObjectOutputStream oos = new ObjectOutputStream(baos)) {
-            oos.writeObject(new ArrayList<>(graphNodeIds));
-            return baos.toByteArray();
-        } catch (IOException e) {
-            e.printStackTrace();
-            return null;
-        }
-    }
-
-    @Override
-    public void restoreGraph(byte[] snapshot) {
-        try (ByteArrayInputStream bais = new ByteArrayInputStream(snapshot);
-             ObjectInputStream ois = new ObjectInputStream(bais)) {
-            graphNodeIds = (List<Object>) ois.readObject();
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
 }

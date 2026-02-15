@@ -287,7 +287,7 @@ Example workload with multiple tasks:
     { "name": "add_nodes_latency", "ops": 5000, "batch_size": 128 },
     { "name": "add_nodes_throughput", "ops": 20000, "client_threads": 8 },
     { "name": "add_edges_latency", "ops": 5000, "batch_size": 256 },
-    { "name": "delete_nodes_latency", "ops": 1000, "copy_mode": true },
+    { "name": "delete_nodes_latency", "ops": 1000 },
     { "name": "read_nbrs_latency", "ops": 1000 },
     { "name": "read_nbrs_throughput", "ops": 50000, "client_threads": 16 },
     {
@@ -315,7 +315,6 @@ Example workload with multiple tasks:
 | `client_threads` | integer | 1 | Number of concurrent client threads |
 | `batch_size` | integer | 128 | Number of queries to execute in a single batch (for latency tests) |
 | `ratios` | object | - | Operation mix ratios for mixed workloads (must sum to 1.0) |
-| `copy_mode` | boolean | false | Reload original graph before executing this task |
 
 ## Supported Tasks
 
@@ -355,7 +354,6 @@ For throughput tests (tasks ending with `_throughput`), queries are executed con
 - **Behavior**:
   - Parses MTX file to extract nodes and edges
   - Creates all nodes first, then creates edges in batches
-  - Saves a snapshot for `copy_mode` restoration
 - **Error Handling**: Fails if dataset file is invalid or inaccessible
 
 #### 2. `add_nodes_latency` / `add_nodes_throughput`
@@ -452,26 +450,6 @@ This approach allows benchmarking on very large datasets (millions of edges) wit
 | `client_threads` | integer | 1 | Number of concurrent client threads (for throughput tasks) |
 | `batch_size` | integer | 128 | Number of queries to execute in a single batch (affects transaction granularity) |
 | `ratios` | object | - | Operation mix ratios for mixed workloads (must sum to 1.0) |
-| `copy_mode` | boolean | false | Reload original graph before executing this task |
-
-### Copy Mode
-
-When `copy_mode: true` is set, the task will restore the graph to its original state (after `load_graph`) before execution. This is useful for:
-- **Delete operations**: Ensure nodes/edges from the original graph exist
-- **Consistent testing**: Test on the same graph structure across multiple runs
-- **Avoiding interference**: Previous add operations won't affect delete/read tests
-
-**Example**:
-```json
-{
-  "tasks": [
-    { "name": "load_graph" },
-    { "name": "add_nodes_latency", "ops": 5000 },
-    { "name": "delete_nodes_latency", "ops": 1000, "copy_mode": true }
-  ]
-}
-```
-In this example, `delete_nodes_latency` will test on the original graph, not the graph modified by `add_nodes_latency`.
 
 ### Error Handling Philosophy
 

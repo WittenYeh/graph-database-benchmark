@@ -7,8 +7,8 @@
     { "name": "load_graph" },
     { "name": "add_nodes_latency", "ops": 5000 },
     { "name": "add_edges_latency", "ops": 5000 },
-    { "name": "delete_nodes_latency", "ops": 1000, "copy_mode": true },
-    { "name": "delete_edges_latency", "ops": 1000, "copy_mode": true },
+    { "name": "delete_nodes_latency", "ops": 1000 },
+    { "name": "delete_edges_latency", "ops": 1000 },
     { "name": "read_nbrs_latency", "ops": 1000 },
     { "name": "read_nbrs_throughput", "ops": 50000, "client_threads": 16 },
     {

@@ -43,30 +43,13 @@ public interface GraphBenchmarkExecutor {
     Map<String, Object> executeTask(String taskName, List<String> queries, int clientThreads, String datasetPath, int batchSize, String latencyTestMode) throws Exception;
 
     /**
-     * Execute a single query string.
+     * Execute a single query string in singleton mode.
      * Implementation should handle transaction management and error handling.
+     * Each query is executed individually with its own transaction.
      *
      * @param query Database-specific query string (Cypher for Neo4j, Gremlin for JanusGraph)
      */
-    void executeQuery(String query);
-
-    /**
-     * Create a snapshot of the current graph state.
-     * Used for copy_mode to restore graph state before each task.
-     *
-     * @return Serialized graph snapshot as byte array
-     * @throws Exception if snapshot creation fails
-     */
-    byte[] snapshotGraph() throws Exception;
-
-    /**
-     * Restore graph state from a snapshot.
-     * Used for copy_mode to reset graph before executing a task.
-     *
-     * @param snapshot Serialized graph snapshot
-     * @throws Exception if restore fails
-     */
-    void restoreGraph(byte[] snapshot) throws Exception;
+    void executeSingleton(String query);
 
     /**
      * Shutdown the database and cleanup resources.
