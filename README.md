@@ -1,6 +1,6 @@
 # Graph Database Benchmark
 
-An embedded graph database benchmark framework for testing Neo4j and JanusGraph performance.
+An embedded graph database benchmark framework for testing Neo4j and JanusGraph **latency performance** using **native APIs** instead of query engines.
 
 ## Project Structure
 
@@ -16,6 +16,16 @@ graph-database-benchmark/
 │   │   └── docker_manager.py
 │   └── report/                    # Report generator
 │       └── report_generator.py
+├── common/                        # Shared Java components
+│   └── src/main/java/com/graphbench/
+│       ├── api/                   # Core interfaces
+│       │   ├── BenchmarkExecutor.java
+│       │   └── WorkloadDispatcher.java
+│       └── workload/              # Workload data models
+│           ├── WorkloadTask.java
+│           ├── AddVertexParams.java
+│           ├── AddEdgeParams.java
+│           └── ...
 ├── docker/                        # Docker container implementations
 │   ├── neo4j/                     # Neo4j embedded benchmark
 │   │   ├── Dockerfile
@@ -68,11 +78,14 @@ graph-database-benchmark/
          │  │  (HTTP API: 8080)      │ │        │ │  (HTTP API: 8081)    │ │
          │  └────────────────────────┘ │        │ └──────────────────────┘ │
          │  ┌────────────────────────┐ │        │ ┌──────────────────────┐ │
-         │  │ Neo4jBenchmarkExecutor │ │        │ │ JanusGraphExecutor   │ │
-         │  │ - Load MTX datasets    │ │        │ │ - Load MTX datasets  │ │
-         │  │ - Execute Cypher       │ │        │ │ - Execute Gremlin    │ │
-         │  │ - Measure latency      │ │        │ │ - Measure latency    │ │
-         │  │ - Measure throughput   │ │        │ │ - Measure throughput │ │
+         │  │ WorkloadDispatcher     │ │        │ │ WorkloadDispatcher   │ │
+         │  │ - Parse JSON workloads │ │        │ │ - Parse JSON workloads│ │
+         │  │ - Dispatch to executor │ │        │ │ - Dispatch to executor│ │
+         │  └────────────────────────┘ │        │ └──────────────────────┘ │
+         │  ┌────────────────────────┐ │        │ ┌──────────────────────┐ │
+         │  │ BenchmarkExecutor      │ │        │ │ BenchmarkExecutor    │ │
+         │  │ - Native Neo4j API     │ │        │ │ - TinkerPop API      │ │
+         │  │ - Serial execution     │ │        │ │ - Serial execution   │ │
          │  └────────────────────────┘ │        │ └──────────────────────┘ │
          └─────────────────────────────┘        └──────────────────────────┘
 ```
@@ -81,22 +94,24 @@ The benchmark framework consists of two main components:
 
 ### Host (Python)
 - **BenchmarkLauncher**: Orchestrates the entire benchmark workflow
-- **WorkloadCompiler**: Compiles workload configurations to database-specific query languages (Cypher for Neo4j, Gremlin for JanusGraph)
+- **WorkloadCompiler**: Generates native API workload JSON files with structured parameters
 - **DockerManager**: Manages Docker containers and communicates with benchmark servers
 - **ReportGenerator**: Generates visualizations from benchmark results using Seaborn
 
 ### Docker Container (Java)
-- **BenchmarkServer**: HTTP API server that receives workload files and returns metrics
-- **BenchmarkExecutor**: Instantiates embedded database, loads datasets, executes queries, and measures performance
+- **BenchmarkServer**: HTTP API server that receives execution requests and returns metrics
+- **WorkloadDispatcher**: Reads JSON workload files and dispatches operations to executor
+- **BenchmarkExecutor**: Executes operations serially using native APIs, measures per-operation latency
 - Each container is isolated and provides clean benchmarking environment
 - Execution time is pure (excludes network transmission time)
 
 ## Features
 
+- **Native API Execution**: Direct database API calls (Neo4j Embedded API, TinkerPop Structure API) instead of query engines
+- **Latency Testing**: Serial execution with per-operation latency tracking in microseconds
+- **10 Benchmark Operations**: ADD_VERTEX, UPSERT_VERTEX_PROPERTY, REMOVE_VERTEX, ADD_EDGE, UPSERT_EDGE_PROPERTY, REMOVE_EDGE, GET_NBRS, GET_VERTEX_BY_PROPERTY, GET_EDGE_BY_PROPERTY, LOAD_GRAPH
 - Support for Neo4j Embedded and JanusGraph with BerkeleyDB backend
-- Flexible workload configuration with multiple task types
-- Latency and throughput testing
-- Mixed workload support with configurable operation ratios
+- Optimized graph loading with two-pass streaming approach
 - Beautiful visualizations with Seaborn
 - Docker-based isolation for clean benchmarking
 - Reproducible results with seed support
@@ -279,29 +294,17 @@ Example workload with multiple tasks:
 
 ```json
 {
-  "server_config": {
-    "threads": 8
-  },
   "tasks": [
     { "name": "load_graph" },
-    { "name": "add_nodes_latency", "ops": 5000, "batch_size": 128 },
-    { "name": "add_nodes_throughput", "ops": 20000, "client_threads": 8 },
-    { "name": "add_edges_latency", "ops": 5000, "batch_size": 256 },
-    { "name": "delete_nodes_latency", "ops": 1000 },
-    { "name": "read_nbrs_latency", "ops": 1000 },
-    { "name": "read_nbrs_throughput", "ops": 50000, "client_threads": 16 },
-    {
-      "name": "mixed_workload_latency",
-      "ops": 10000,
-      "batch_size": 128,
-      "ratios": {
-        "add_node": 0.1,
-        "add_edge": 0.2,
-        "delete_node": 0.05,
-        "delete_edge": 0.05,
-        "read_nbrs": 0.6
-      }
-    }
+    { "name": "add_vertex", "ops": 5000 },
+    { "name": "upsert_vertex_property", "ops": 2000 },
+    { "name": "remove_vertex", "ops": 1000 },
+    { "name": "add_edge", "ops": 5000 },
+    { "name": "upsert_edge_property", "ops": 2000 },
+    { "name": "remove_edge", "ops": 1000 },
+    { "name": "get_nbrs", "ops": 10000, "direction": "OUT" },
+    { "name": "get_vertex_by_property", "ops": 1000 },
+    { "name": "get_edge_by_property", "ops": 1000 }
   ]
 }
 ```
@@ -310,150 +313,113 @@ Example workload with multiple tasks:
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `name` | string | required | Task name (see Supported Tasks below) |
+| `name` | string | required | Task name (see Supported Operations below) |
 | `ops` | integer | required | Number of operations to execute |
-| `client_threads` | integer | 1 | Number of concurrent client threads |
-| `batch_size` | integer | 128 | Number of queries to execute in a single batch (for latency tests) |
-| `ratios` | object | - | Operation mix ratios for mixed workloads (must sum to 1.0) |
+| `direction` | string | "OUT" | Direction for GET_NBRS: "OUT", "IN", or "BOTH" |
 
-## Supported Tasks
+## Supported Operations
 
-### Task Semantics
+The benchmark supports 10 operations using native database APIs:
 
-Each task type has specific behavior and error handling semantics. The workload compiler uses **memory-efficient streaming** to sample nodes and edges from the dataset without loading the entire graph into memory.
-
-**Latency Test Execution**
-
-For latency tests (tasks ending with `_latency`), queries are executed serially in batches:
-
-- Queries are split into batches of size `batch_size` (default: 128)
-- Each batch is executed serially by calling `executeBatch`
-- **Neo4j**: All queries in a batch are executed within a single transaction
-- **JanusGraph**: All queries in a batch are executed transaction-free (no explicit transaction)
-- Latency is calculated as: `batch_execution_time / batch_size`
-- Individual per-operation latencies are reported (P50, P90, P95, P99, mean)
-
-**Throughput Test Execution**
-
-For throughput tests (tasks ending with `_throughput`), queries are executed concurrently in batches:
-
-- Queries are split into batches and distributed across `client_threads` threads
-- Each thread executes its assigned batch by calling `executeBatch`
-- **Neo4j**: Each batch is executed within a single transaction
-- **JanusGraph**: Each batch is executed transaction-free
-- Throughput is calculated as: `total_operations / total_parallel_execution_time`
-- Reports queries per second (QPS)
-
-**Key Differences Between Databases**
-
-- **Neo4j**: Cannot support transaction-free operations. All queries in a batch are wrapped in a single transaction for both latency and throughput tests.
-- **JanusGraph**: Supports transaction-free operations. Queries in a batch are executed without explicit transactions, allowing for better performance in certain workloads.
-
-#### 1. `load_graph`
+### 1. LOAD_GRAPH
 - **Description**: Bulk-loads the entire dataset from MTX file
-- **Behavior**:
-  - Parses MTX file to extract nodes and edges
-  - Creates all nodes first, then creates edges in batches
+- **Implementation**: Two-pass streaming approach
+  - Pass 1: Collect unique node IDs
+  - Pass 2: Stream through file again to create edges
+- **Optimization**: Batch commits every 10,000 operations, schema index creation
 - **Error Handling**: Fails if dataset file is invalid or inaccessible
 
-#### 2. `add_nodes_latency` / `add_nodes_throughput`
-- **Description**: Inserts new nodes into the graph
-- **Behavior**:
-  - Generates random node IDs (e.g., `1234567`)
-  - Creates nodes with label `MyNode` and property `id`
-  - Latency mode: single-threaded, measures per-operation latency
-  - Throughput mode: multi-threaded, measures operations per second
-- **Cypher**: `CREATE (n:MyNode {id: 1234567})`
-- **Gremlin**: `g.addV('MyNode').property('id', 1234567)`
-- **Error Handling**: Silently skips if node ID already exists (idempotent)
+### 2. ADD_VERTEX
+- **Description**: Adds new vertices using native API
+- **Neo4j API**: `tx.createNode(Label.label("MyNode")).setProperty("id", vertexId)`
+- **TinkerPop API**: `g.addV("MyNode").property("id", vertexId)`
+- **Parameters**: List of vertex IDs
+- **Error Handling**: Silent failure if vertex already exists (idempotent)
 
-#### 3. `add_edges_latency` / `add_edges_throughput`
-- **Description**: Inserts new edges between existing nodes
-- **Behavior**:
-  - Randomly samples two node IDs by reading random lines from the dataset
-  - Creates directed edge with label `MyEdge`
-  - May create duplicate edges between same node pairs
-- **Sampling Strategy**: Reads two random lines from MTX file, extracts node IDs
-- **Cypher**: `MATCH (a:MyNode), (b:MyNode) WHERE a.id = 123 AND b.id = 456 CREATE (a)-[:MyEdge]->(b)`
-- **Gremlin**: `g.V().has('id', 123).addE('MyEdge').to(__.V().has('id', 456))`
-- **Error Handling**: Silently skips if source or destination node doesn't exist
+### 3. UPSERT_VERTEX_PROPERTY
+- **Description**: Updates or inserts vertex properties using native API
+- **Neo4j API**: `node.setProperty(key, value)`
+- **TinkerPop API**: `vertex.property(key, value)`
+- **Parameters**: List of vertex updates (id + properties map)
+- **Error Handling**: Silent failure if vertex doesn't exist
 
-#### 4. `delete_nodes_latency` / `delete_nodes_throughput`
-- **Description**: Deletes nodes and their incident edges
-- **Behavior**:
-  - Randomly samples node IDs by reading random lines from the dataset
-  - Deletes node and all connected edges (DETACH DELETE in Cypher)
-- **Sampling Strategy**: Reads a random line from MTX file, extracts first node ID
-- **Cypher**: `MATCH (n:MyNode {id: 123}) DETACH DELETE n`
-- **Gremlin**: `g.V().has('id', 123).drop()`
-- **Error Handling**: Silently succeeds (no-op) if node doesn't exist
+### 4. REMOVE_VERTEX
+- **Description**: Removes vertices using native API
+- **Neo4j API**: `node.delete()` (after deleting relationships)
+- **TinkerPop API**: `g.V(vertexId).drop()`
+- **Parameters**: List of vertex IDs
+- **Error Handling**: Silent failure if vertex doesn't exist (idempotent)
 
-#### 5. `delete_edges_latency` / `delete_edges_throughput`
-- **Description**: Deletes edges between nodes
-- **Behavior**:
-  - Randomly samples edges by reading random lines from the dataset
-  - Deletes the specific edge between two nodes
-- **Sampling Strategy**: Reads a random line from MTX file, uses both node IDs as edge
-- **Cypher**: `MATCH (a:MyNode {id: 123})-[r:MyEdge]->(b:MyNode {id: 456}) DELETE r`
-- **Gremlin**: `g.V().has('id', 123).outE('MyEdge').where(inV().has('id', 456)).drop()`
-- **Error Handling**: Silently succeeds (no-op) if edge doesn't exist
+### 5. ADD_EDGE
+- **Description**: Adds edges between vertices using native API
+- **Neo4j API**: `srcNode.createRelationshipTo(dstNode, RelationshipType.withName(label))`
+- **TinkerPop API**: `g.V(srcId).addE(label).to(g.V(dstId))`
+- **Parameters**: Edge label and list of (src, dst) pairs
+- **Error Handling**: Silent failure if source or destination vertex doesn't exist
 
-#### 6. `read_nbrs_latency` / `read_nbrs_throughput`
-- **Description**: Reads outgoing neighbors of a node
-- **Behavior**:
-  - Randomly samples node IDs by reading random lines from the dataset
-  - Retrieves all outgoing neighbors via `MyEdge` relationships
-  - Returns neighbor node IDs
-- **Sampling Strategy**: Reads a random line from MTX file, extracts first node ID
-- **Cypher**: `MATCH (n:MyNode {id: 123})-[:MyEdge]->(m) RETURN m.id`
-- **Gremlin**: `g.V().has('id', 123).out('MyEdge').values('id')`
-- **Error Handling**: Returns empty result if node doesn't exist or has no neighbors
+### 6. UPSERT_EDGE_PROPERTY
+- **Description**: Updates or inserts edge properties using native API
+- **Neo4j API**: `relationship.setProperty(key, value)`
+- **TinkerPop API**: `edge.property(key, value)`
+- **Parameters**: Edge label and list of edge updates (src, dst, properties map)
+- **Error Handling**: Silent failure if edge doesn't exist
 
-#### 7. `mixed_workload_latency` / `mixed_workload_throughput`
-- **Description**: Executes a mix of operations with configurable ratios
-- **Behavior**:
-  - Combines add_node, add_edge, delete_node, delete_edge, and read_nbrs operations
-  - Operations are shuffled randomly
-  - Ratios must sum to 1.0
-- **Example**:
-  ```json
-  {
-    "name": "mixed_workload_latency",
-    "ops": 10000,
-    "ratios": {
-      "add_node": 0.1,
-      "add_edge": 0.2,
-      "delete_node": 0.05,
-      "delete_edge": 0.05,
-      "read_nbrs": 0.6
-    }
+### 7. REMOVE_EDGE
+- **Description**: Removes edges using native API
+- **Neo4j API**: `relationship.delete()`
+- **TinkerPop API**: `g.V(srcId).outE(label).where(inV().hasId(dstId)).drop()`
+- **Parameters**: Edge label and list of (src, dst) pairs
+- **Error Handling**: Silent failure if edge doesn't exist (idempotent)
+
+### 8. GET_NBRS
+- **Description**: Gets neighbors of vertices using native API
+- **Neo4j API**: `node.getRelationships(direction)` then `rel.getOtherNode(node)`
+- **TinkerPop API**: `g.V(vertexId).out()` / `in()` / `both()`
+- **Parameters**: Direction ("OUT", "IN", "BOTH") and list of vertex IDs
+- **Error Handling**: Returns empty result if vertex doesn't exist
+
+### 9. GET_VERTEX_BY_PROPERTY
+- **Description**: Queries vertices by property using native API
+- **Neo4j API**: Iterate through `tx.getAllNodes()` and filter by property
+- **TinkerPop API**: `g.V().hasLabel(label).has(key, value)`
+- **Parameters**: List of property queries (key, value pairs)
+- **Error Handling**: Returns empty result if no matches found
+
+### 10. GET_EDGE_BY_PROPERTY
+- **Description**: Queries edges by property using native API
+- **Neo4j API**: Iterate through relationships and filter by property
+- **TinkerPop API**: `g.E().hasLabel(label).has(key, value)`
+- **Parameters**: Edge label and list of property queries (key, value pairs)
+- **Error Handling**: Returns empty result if no matches found
+
+## Workload Format
+
+Workloads are defined as JSON files with structured parameters:
+
+```json
+{
+  "task_type": "ADD_VERTEX",
+  "ops_count": 3,
+  "parameters": {
+    "ids": [10001, 10002, 10003]
   }
-  ```
-- **Error Handling**: Each operation follows its individual error handling semantics
+}
+```
 
-### Memory-Efficient Workload Compilation
-
-The workload compiler uses a **streaming approach** to avoid loading entire datasets into memory:
-
-1. **Counting Phase**: Counts the number of edges in the dataset (one pass through file)
-2. **Sampling Phase**: For each query, reads a random line from the dataset on-demand
-3. **Memory Usage**: Only stores the line count and dataset path, not all nodes/edges
-
-This approach allows benchmarking on very large datasets (millions of edges) without memory constraints.
-
-### Task Parameters
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `name` | string | required | Task name (see task list above) |
-| `ops` | integer | required | Number of operations to execute |
-| `client_threads` | integer | 1 | Number of concurrent client threads (for throughput tasks) |
-| `batch_size` | integer | 128 | Number of queries to execute in a single batch (affects transaction granularity) |
-| `ratios` | object | - | Operation mix ratios for mixed workloads (must sum to 1.0) |
+```json
+{
+  "task_type": "GET_NBRS",
+  "ops_count": 3,
+  "parameters": {
+    "direction": "OUT",
+    "ids": [10001, 10002, 10005]
+  }
+}
+```
 
 ### Error Handling Philosophy
 
-The benchmark framework follows a **silent failure** approach for most operations:
+The benchmark framework follows a **silent failure** approach:
 - **Add operations**: Skip if entity already exists (idempotent)
 - **Delete operations**: No-op if entity doesn't exist (idempotent)
 - **Read operations**: Return empty results if entity doesn't exist
@@ -462,10 +428,6 @@ This design ensures:
 1. **Consistent metrics**: Failed operations don't skew latency measurements
 2. **Realistic workloads**: Real-world systems often handle missing entities gracefully
 3. **Continuous execution**: Benchmark doesn't stop on individual operation failures
-
-All operations are counted in `totalOps` regardless of success/failure, providing accurate throughput measurements.
-
-## Output Format
 
 Benchmark results are saved as JSON files with the naming pattern: `bench_{database}_{dataset}.json`
 
@@ -536,34 +498,28 @@ Example output:
 ## How It Works
 
 1. **Parameter Configuration**: BenchmarkLauncher reads database, dataset, and workload configurations
-2. **Workload Compilation**: WorkloadCompiler translates workload tasks into database-specific query languages (Cypher/Gremlin) and saves them as JSON files
+2. **Workload Compilation**: WorkloadCompiler generates native API workload JSON files with structured parameters (no query strings)
 3. **Docker Container Startup**: DockerManager builds/starts Docker container with mounted dataset and compiled workload directories
-4. **Benchmark Execution**: Container's BenchmarkExecutor:
-   - Initializes embedded database
-   - Loads dataset from MTX file
-   - Executes each workload task sequentially
-   - **Latency tests**: Executes queries serially in batches, measures per-operation latency
-   - **Throughput tests**: Executes queries concurrently in batches, measures queries per second
+4. **Benchmark Execution**: Container's WorkloadDispatcher:
+   - Reads JSON workload files
+   - Dispatches operations to BenchmarkExecutor
+   - Executor calls native APIs serially, measures per-operation latency
    - Measures pure execution time (no network overhead)
    - Returns results via HTTP API
 5. **Result Collection**: Host collects results and saves to JSON file
 6. **Visualization**: ReportGenerator creates comparison charts using Seaborn
 
-### Batch Execution Details
+### Native API Execution
 
-**For Latency Tests:**
-- Queries are divided into batches of `batch_size` (default: 128)
-- Each batch is executed serially
-- Neo4j: Batch queries are wrapped in a single transaction
-- JanusGraph: Batch queries are executed transaction-free
-- Latency = batch_execution_time / batch_size
+**Neo4j (Embedded API):**
+- Direct calls to `tx.createNode()`, `node.setProperty()`, `relationship.delete()`, etc.
+- Each operation wrapped in its own transaction
+- No Cypher query parsing overhead
 
-**For Throughput Tests:**
-- Queries are divided into batches and distributed across threads
-- Each thread executes its batch in parallel
-- Neo4j: Each batch is wrapped in a single transaction
-- JanusGraph: Each batch is executed transaction-free
-- Throughput = total_operations / total_parallel_execution_time
+**JanusGraph (TinkerPop Structure API):**
+- Direct calls to `g.addV()`, `vertex.property()`, `g.V().drop()`, etc.
+- Transaction management via `g.tx().commit()`
+- No Gremlin query parsing overhead
 
 ## Database Versions
 
@@ -572,11 +528,12 @@ Example output:
 
 ## Design Principles
 
-1. **Separation of Concerns**: Host handles orchestration and compilation; containers handle pure execution
-2. **Language Agnostic Containers**: Containers only execute queries from JSON files, agnostic to task semantics
-3. **Clean Benchmarking**: Docker isolation ensures reproducible, interference-free measurements
-4. **Pure Execution Time**: Timing excludes network transmission and only measures query execution
-5. **Extensibility**: Easy to add new databases by implementing a new Docker container with the same API
+1. **Native API Performance**: Direct database API calls without query parsing overhead
+2. **Separation of Concerns**: Host handles orchestration; containers handle pure execution
+3. **Latency Focus**: Serial execution to accurately measure per-operation latency
+4. **Clean Benchmarking**: Docker isolation ensures reproducible, interference-free measurements
+5. **Pure Execution Time**: Timing excludes network transmission and only measures API call execution
+6. **Extensibility**: Easy to add new databases by implementing executor interfaces
 
 ## License
 

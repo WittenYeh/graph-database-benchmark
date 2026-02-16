@@ -2,6 +2,7 @@ package com.graphbench.janusgraph;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.graphbench.api.WorkloadDispatcher;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
@@ -15,16 +16,12 @@ import java.util.concurrent.Executors;
 public class BenchmarkServer {
     private static final int PORT = Integer.parseInt(System.getenv().getOrDefault("API_PORT", "50081"));
     private static final Gson gson = new GsonBuilder().setPrettyPrinting().create();
-    private static JanusGraphBenchmarkExecutor executor;
 
     public static void main(String[] args) throws IOException {
         System.out.println("Starting JanusGraph Benchmark Server on port " + PORT);
 
         // Clean up old database directory on startup
         cleanupOldDatabase();
-
-        // Initialize executor
-        executor = new JanusGraphBenchmarkExecutor();
 
         // Create HTTP server
         HttpServer server = HttpServer.create(new InetSocketAddress(PORT), 0);
@@ -39,7 +36,6 @@ public class BenchmarkServer {
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             System.out.println("Shutting down server...");
             server.stop(0);
-            executor.shutdown();
         }));
     }
 
@@ -93,13 +89,13 @@ public class BenchmarkServer {
 
                 String datasetName = (String) request.get("dataset_name");
                 String datasetPath = (String) request.get("dataset_path");
-                int serverThreads = ((Double) request.getOrDefault("server_threads", 8.0)).intValue();
-                String callbackUrl = (String) request.get("callback_url");
 
                 System.out.println("Executing benchmark for dataset: " + datasetName);
 
-                // Execute benchmark
-                Map<String, Object> results = executor.executeBenchmark(datasetPath, serverThreads, callbackUrl);
+                // Create executor and dispatcher
+                JanusGraphBenchmarkExecutor executor = new JanusGraphBenchmarkExecutor();
+                WorkloadDispatcher dispatcher = new WorkloadDispatcher(executor, datasetPath);
+                Map<String, Object> results = dispatcher.executeBenchmark("/data/workloads");
 
                 // Send response
                 String response = gson.toJson(results);
