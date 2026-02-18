@@ -142,8 +142,17 @@ class WorkloadCompiler:
         Must select nodes from self.sampled_nodes (initial data).
         If we select a randomly generated ID, that node won't exist because the graph was restored,
         making the delete operation invalid (Benchmark failure).
+        Sample without replacement to ensure each vertex is only removed once.
         """
-        ids = [self._sample_existing_node() for _ in range(ops)]
+        # Deduplicate sampled_nodes first, then sample without replacement
+        unique_nodes = list(set(self.sampled_nodes))
+        available_nodes = len(unique_nodes)
+
+        if ops > available_nodes:
+            print(f"Warning: Requested {ops} remove_vertex ops, but only {available_nodes} unique sampled nodes available. Using {available_nodes}.")
+            ops = available_nodes
+
+        ids = random.sample(unique_nodes, ops)
         return {
             "task_type": "REMOVE_VERTEX",
             "ops_count": ops,
@@ -175,11 +184,17 @@ class WorkloadCompiler:
         """
         Logic:
         Must select from self.sampled_edges (initial edges).
+        Sample without replacement to ensure each edge is only removed once.
         """
-        pairs = []
-        for _ in range(ops):
-            src, dst = self._sample_existing_edge()
-            pairs.append({"src": src, "dst": dst})
+        # Sample without replacement to avoid duplicates
+        available_edges = len(self.sampled_edges)
+        if ops > available_edges:
+            print(f"Warning: Requested {ops} remove_edge ops, but only {available_edges} sampled edges available. Using {available_edges}.")
+            ops = available_edges
+
+        sampled = random.sample(self.sampled_edges, ops)
+        pairs = [{"src": src, "dst": dst} for src, dst in sampled]
+
         return {
             "task_type": "REMOVE_EDGE",
             "ops_count": ops,
