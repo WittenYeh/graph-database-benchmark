@@ -11,6 +11,9 @@ from typing import Optional
 class ProgressHandler(BaseHTTPRequestHandler):
     """HTTP handler for progress callbacks"""
 
+    # Class variable to track restore state
+    restore_expected = False
+
     def log_message(self, format, *args):
         """Suppress default HTTP logging"""
         pass
@@ -34,6 +37,26 @@ class ProgressHandler(BaseHTTPRequestHandler):
                 self._handle_task_start(data)
             elif event == 'task_complete':
                 self._handle_task_complete(data)
+            elif event == 'subtask_start':
+                self._handle_subtask_start(data)
+            elif event == 'subtask_complete':
+                self._handle_subtask_complete(data)
+            elif event == 'snapshot_start':
+                self._handle_snapshot_start(data)
+            elif event == 'snapshot_complete':
+                self._handle_snapshot_complete(data)
+            elif event == 'restore_start':
+                self._handle_restore_start(data)
+            elif event == 'restore_complete':
+                self._handle_restore_complete(data)
+            elif event == 'cleanup_start':
+                self._handle_cleanup_start(data)
+            elif event == 'cleanup_complete':
+                self._handle_cleanup_complete(data)
+            elif event == 'log_message':
+                self._handle_log_message(data)
+            elif event == 'error_message':
+                self._handle_error_message(data)
 
             # Send response
             self.send_response(200)
@@ -68,6 +91,98 @@ class ProgressHandler(BaseHTTPRequestHandler):
         status_icon = "✓" if status == "success" else "✗"
         print(f"  {status_icon}  Task {task_index + 1}/{total_tasks}: {task_name} completed in {duration:.2f}s ({status})")
         sys.stdout.flush()  # Force flush to ensure output is displayed
+
+    def _handle_subtask_start(self, data):
+        """Handle subtask start event"""
+        task_name = data.get('task_name')
+        # Check if restore was expected but didn't happen
+        if ProgressHandler.restore_expected:
+            print(f"    ⚠️  Warning: Expected restore before subtask start")
+        print(f"    ▶️  {task_name}")
+        sys.stdout.flush()
+        # Reset restore expectation when subtask starts
+        ProgressHandler.restore_expected = False
+
+    def _handle_subtask_complete(self, data):
+        """Handle subtask complete event"""
+        task_name = data.get('task_name')
+        duration = data.get('duration_seconds')
+        status = data.get('status')
+        original_ops = data.get('original_ops_count')
+        valid_ops = data.get('valid_ops_count')
+        filtered_ops = data.get('filtered_ops_count')
+
+        status_icon = "✓" if status == "success" else "✗"
+
+        # Build output message
+        msg = f"    {status_icon}  {task_name} completed in {duration:.2f}s"
+
+        # Add operation counts if available
+        if original_ops is not None and valid_ops is not None:
+            if filtered_ops and filtered_ops > 0:
+                msg += f" [{valid_ops}/{original_ops} valid ops, {filtered_ops} filtered]"
+            else:
+                msg += f" [{valid_ops} ops]"
+            msg += " (latency is for valid ops only)"
+
+        print(msg)
+        sys.stdout.flush()
+        # After subtask completes, expect restore before next subtask
+        ProgressHandler.restore_expected = True
+    def _handle_snapshot_start(self, data):
+        """Handle snapshot start event"""
+        print(f"  📸 Creating database snapshot...")
+        sys.stdout.flush()
+
+    def _handle_snapshot_complete(self, data):
+        """Handle snapshot complete event"""
+        status = data.get('status')
+        status_icon = "✓" if status == "success" else "✗"
+        print(f"  {status_icon}  Snapshot created successfully")
+        sys.stdout.flush()
+
+    def _handle_restore_start(self, data):
+        """Handle restore start event - suppress normal output"""
+        pass
+
+    def _handle_restore_complete(self, data):
+        """Handle restore complete event - only show errors"""
+        status = data.get('status')
+        if status != 'success':
+            print(f"  ❌ Failed to restore database from snapshot")
+            sys.stdout.flush()
+        else:
+            # Clear restore expectation after successful restore
+            ProgressHandler.restore_expected = False
+
+    def _handle_cleanup_start(self, data):
+        """Handle cleanup start event"""
+        print(f"  🧹 Cleaning up database...")
+        sys.stdout.flush()
+
+    def _handle_cleanup_complete(self, data):
+        """Handle cleanup complete event"""
+        status = data.get('status')
+        status_icon = "✓" if status == "success" else "✗"
+        print(f"  {status_icon}  Database cleanup completed")
+        sys.stdout.flush()
+
+    def _handle_log_message(self, data):
+        """Handle log message event"""
+        message = data.get('message', '')
+        level = data.get('level', 'INFO')
+        if level == 'INFO':
+            print(f"  ℹ️  {message}")
+        elif level == 'WARNING':
+            print(f"  ⚠️  {message}")
+        sys.stdout.flush()
+
+    def _handle_error_message(self, data):
+        """Handle error message event"""
+        message = data.get('message', '')
+        error_type = data.get('error_type', 'Error')
+        print(f"  ❌ {error_type}: {message}")
+        sys.stdout.flush()
 
 
 class ProgressServer:

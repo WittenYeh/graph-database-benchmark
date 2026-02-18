@@ -1,14 +1,26 @@
 package com.graphbench.neo4j;
 
 import com.graphbench.api.BenchmarkExecutor;
+import com.graphbench.api.BenchmarkUtils;
+import com.graphbench.api.ProgressCallback;
 import com.graphbench.workload.*;
 import org.neo4j.dbms.api.DatabaseManagementService;
 import org.neo4j.dbms.api.DatabaseManagementServiceBuilder;
-import org.neo4j.graphdb.*;
+import org.neo4j.graphdb.Direction;
+import org.neo4j.graphdb.GraphDatabaseService;
+import org.neo4j.graphdb.Label;
+import org.neo4j.graphdb.Node;
+import org.neo4j.graphdb.Relationship;
+import org.neo4j.graphdb.RelationshipType;
+import org.neo4j.graphdb.ResourceIterator;
+import org.neo4j.graphdb.Transaction;
+import org.openjdk.jmh.infra.Blackhole;
 
 import java.io.*;
 import java.nio.file.*;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Neo4j implementation of BenchmarkExecutor using native APIs.
@@ -16,13 +28,21 @@ import java.util.*;
  */
 public class Neo4jBenchmarkExecutor implements BenchmarkExecutor {
     private static final String DB_PATH = "/tmp/neo4j-benchmark-db";
+    private static final String SNAPSHOT_PATH = "/tmp/neo4j-benchmark-db-snapshot";
     private static final String DEFAULT_DB = "neo4j";
     private static final String NODE_LABEL = "MyNode";
     private static final int BATCH_SIZE = 10000;
 
     private DatabaseManagementService managementService;
     private GraphDatabaseService db;
-    private Map<Long, Long> nodeIdMap = new HashMap<>(); // Maps logical ID to Neo4j internal ID
+    private int errorCount = 0;
+    private ProgressCallback progressCallback;
+    private final Blackhole blackhole = new Blackhole("Today's password is swordfish. I understand instantiating Blackholes directly is dangerous.");
+    private Map<Long, Long> nodeIdsMap = new HashMap<>(); // Maps origin ID to Neo4j internal node ID
+
+    public Neo4jBenchmarkExecutor() {
+        this.progressCallback = new ProgressCallback(System.getenv("PROGRESS_CALLBACK_URL"));
+    }
 
     @Override
     public String getDatabaseName() {
@@ -30,17 +50,41 @@ public class Neo4jBenchmarkExecutor implements BenchmarkExecutor {
     }
 
     @Override
-    public void initDatabase() throws Exception {
-        // Clean up old database
-        if (Files.exists(Paths.get(DB_PATH))) {
-            deleteDirectory(new File(DB_PATH));
+    public String getDatabasePath() {
+        return DB_PATH;
+    }
+
+    @Override
+    public String getSnapshotPath() {
+        return SNAPSHOT_PATH;
+    }
+
+    @Override
+    public void closeDatabase() throws Exception {
+        if (managementService != null) {
+            managementService.shutdown();
+            managementService = null;
+            db = null;
         }
+    }
+
+    @Override
+    public void openDatabase() throws Exception {
+        managementService = new DatabaseManagementServiceBuilder(new File(DB_PATH).toPath())
+            .build();
+        db = managementService.database(DEFAULT_DB);
+    }
+
+    @Override
+    public void initDatabase() throws Exception {
+        // Check and clean database directory if not empty
+        BenchmarkUtils.checkAndCleanDatabaseDirectory(DB_PATH);
 
         // Create new database
         managementService = new DatabaseManagementServiceBuilder(Paths.get(DB_PATH)).build();
         db = managementService.database(DEFAULT_DB);
 
-        System.out.println("Neo4j database initialized");
+        progressCallback.sendLogMessage("Neo4j database initialized", "INFO");
     }
 
     @Override
@@ -52,88 +96,31 @@ public class Neo4jBenchmarkExecutor implements BenchmarkExecutor {
 
     @Override
     public Map<String, Object> loadGraph(String datasetPath) throws Exception {
-        System.out.println("Loading graph from: " + datasetPath);
-        nodeIdMap.clear();
+        progressCallback.sendLogMessage("Loading graph from: " + datasetPath, "INFO");
         long startTime = System.nanoTime();
 
-        // Step 0: Create schema index to prevent full table scans
+        // Create unique constraint on id property (creates index automatically)
         try (Transaction tx = db.beginTx()) {
-            tx.schema().indexFor(Label.label(NODE_LABEL)).on("id").create();
+            tx.schema().constraintFor(Label.label(NODE_LABEL)).assertPropertyIsUnique("id").create();
             tx.commit();
         } catch (Exception e) {
-            // Index may already exist, ignore
+            // Constraint may already exist, ignore
         }
 
-        Set<Long> uniqueNodes = new HashSet<>();
-        int nodeCount = 0;
         int edgeCount = 0;
+        RelationshipType relType = RelationshipType.withName("MyEdge");
+        nodeIdsMap.clear(); // Clear existing map
 
-        // ==========================================
-        // Pass 1: Collect unique node IDs
-        // ==========================================
-        System.out.println("Pass 1: Collecting unique nodes...");
+        // Stream through file and create nodes and edges in batches
+        progressCallback.sendLogMessage("Loading graph data...", "INFO");
         try (BufferedReader reader = new BufferedReader(new FileReader(datasetPath))) {
             String line;
+            Transaction tx = db.beginTx();
+            int opsInTx = 0;
+
             while ((line = reader.readLine()) != null) {
                 line = line.trim();
                 if (line.startsWith("%")) continue; // Skip comments
-
-                String[] parts = line.split("\\s+");
-                if (parts.length >= 2) {
-                    try {
-                        long src = Long.parseLong(parts[0]);
-                        long dst = Long.parseLong(parts[1]);
-                        uniqueNodes.add(src);
-                        uniqueNodes.add(dst);
-                    } catch (NumberFormatException e) {
-                        // Skip header lines
-                    }
-                }
-            }
-        }
-
-        // ==========================================
-        // Phase 2: Batch create nodes
-        // ==========================================
-        System.out.println("Creating " + uniqueNodes.size() + " nodes...");
-        Transaction tx = db.beginTx();
-        int opsInTx = 0;
-
-        for (Long externalId : uniqueNodes) {
-            Node node = tx.createNode(Label.label(NODE_LABEL));
-            node.setProperty("id", externalId);
-            // Record mapping: External ID -> Neo4j Internal ID
-            nodeIdMap.put(externalId, node.getId());
-
-            opsInTx++;
-            if (opsInTx >= BATCH_SIZE) {
-                tx.commit();
-                tx.close();
-                tx = db.beginTx();
-                opsInTx = 0;
-            }
-        }
-        tx.commit();
-        tx.close();
-        nodeCount = uniqueNodes.size();
-
-        // Release Set memory for nodeIdMap and subsequent operations
-        uniqueNodes = null;
-        System.gc(); // Suggest GC, but not mandatory
-
-        // ==========================================
-        // Pass 3: Stream through file again to create edges
-        // ==========================================
-        System.out.println("Pass 2: Streaming edges...");
-        try (BufferedReader reader = new BufferedReader(new FileReader(datasetPath))) {
-            String line;
-            tx = db.beginTx();
-            opsInTx = 0;
-            RelationshipType relType = RelationshipType.withName("MyEdge");
-
-            while ((line = reader.readLine()) != null) {
-                line = line.trim();
-                if (line.startsWith("%")) continue;
 
                 String[] parts = line.split("\\s+");
                 if (parts.length < 2) continue;
@@ -147,24 +134,37 @@ public class Neo4jBenchmarkExecutor implements BenchmarkExecutor {
                     continue;
                 }
 
-                Long srcNeo4jId = nodeIdMap.get(srcId);
-                Long dstNeo4jId = nodeIdMap.get(dstId);
+                // Use in-memory map to avoid repeated findNode queries
+                Long srcInternalId = nodeIdsMap.get(srcId);
+                Node srcNode;
+                if (srcInternalId == null) {
+                    srcNode = tx.createNode(Label.label(NODE_LABEL));
+                    srcNode.setProperty("id", srcId);
+                    nodeIdsMap.put(srcId, srcNode.getId());
+                } else {
+                    srcNode = tx.getNodeById(srcInternalId);
+                }
 
-                // Only create edge if both nodes exist
-                if (srcNeo4jId != null && dstNeo4jId != null) {
-                    Node srcNode = tx.getNodeById(srcNeo4jId);
-                    Node dstNode = tx.getNodeById(dstNeo4jId);
-                    srcNode.createRelationshipTo(dstNode, relType);
+                Long dstNodeId = nodeIdsMap.get(dstId);
+                Node dstNode;
+                if (dstNodeId == null) {
+                    dstNode = tx.createNode(Label.label(NODE_LABEL));
+                    dstNode.setProperty("id", dstId);
+                    nodeIdsMap.put(dstId, dstNode.getId());
+                } else {
+                    dstNode = tx.getNodeById(dstNodeId);
+                }
 
-                    edgeCount++;
-                    opsInTx++;
+                // Create edge
+                srcNode.createRelationshipTo(dstNode, relType);
+                edgeCount++;
+                opsInTx++;
 
-                    if (opsInTx >= BATCH_SIZE) {
-                        tx.commit();
-                        tx.close();
-                        tx = db.beginTx();
-                        opsInTx = 0;
-                    }
+                if (opsInTx >= BATCH_SIZE) {
+                    tx.commit();
+                    tx.close();
+                    tx = db.beginTx();
+                    opsInTx = 0;
                 }
             }
             tx.commit();
@@ -174,7 +174,41 @@ public class Neo4jBenchmarkExecutor implements BenchmarkExecutor {
         long endTime = System.nanoTime();
         double durationSeconds = (endTime - startTime) / 1_000_000_000.0;
 
-        System.out.println("Loaded " + nodeCount + " nodes and " + edgeCount + " edges");
+        // Query database for node count
+        int nodeCount = 0;
+        try (Transaction tx = db.beginTx()) {
+            nodeCount = (int) tx.getAllNodes().stream()
+                .filter(node -> node.hasLabel(Label.label(NODE_LABEL)))
+                .count();
+            tx.commit();
+        }
+
+        progressCallback.sendLogMessage("Loaded " + nodeCount + " nodes and " + edgeCount + " edges", "INFO");
+
+        // Create indexes for edge properties to enable fast lookups
+        progressCallback.sendLogMessage("Creating indexes for edge properties...", "INFO");
+
+        try (Transaction tx = db.beginTx()) {
+            // Create indexes for common edge properties used in benchmarks
+            // Note: These are relationship property indexes (Neo4j 4.3+)
+            tx.execute("CREATE INDEX edge_weight_idx IF NOT EXISTS FOR ()-[r:MyEdge]-() ON (r.weight)");
+            tx.execute("CREATE INDEX edge_timestamp_idx IF NOT EXISTS FOR ()-[r:MyEdge]-() ON (r.timestamp)");
+            tx.execute("CREATE INDEX edge_type_idx IF NOT EXISTS FOR ()-[r:MyEdge]-() ON (r.type)");
+            tx.commit();
+        } catch (Exception e) {
+            String errorMsg = "Failed to create edge indexes (may require Neo4j 4.3+): " + e.getMessage();
+            progressCallback.sendLogMessage(errorMsg, "WARNING");
+        }
+
+        // Wait for indexes to come online
+        try (Transaction tx = db.beginTx()) {
+            tx.schema().awaitIndexesOnline(30, TimeUnit.SECONDS);
+            tx.commit();
+            progressCallback.sendLogMessage("Indexes created and online", "INFO");
+        } catch (Exception e) {
+            String errorMsg = "Timeout waiting for indexes: " + e.getMessage();
+            progressCallback.sendLogMessage(errorMsg, "WARNING");
+        }
 
         Map<String, Object> result = new HashMap<>();
         result.put("nodes", nodeCount);
@@ -183,266 +217,232 @@ public class Neo4jBenchmarkExecutor implements BenchmarkExecutor {
         return result;
     }
 
-    @Override
-    public List<Double> addVertex(List<Long> ids) {
-        List<Double> latencies = new ArrayList<>();
-
-        for (Long id : ids) {
-            long startNs = System.nanoTime();
-            try (Transaction tx = db.beginTx()) {
-                Node node = tx.createNode(Label.label(NODE_LABEL));
-                node.setProperty("id", id);
-                nodeIdMap.put(id, node.getId());
-                tx.commit();
-            } catch (Exception e) {
-                // Silent failure
-            }
-            long endNs = System.nanoTime();
-            latencies.add((endNs - startNs) / 1000.0); // Convert to microseconds
-        }
-
-        return latencies;
+    /**
+     * Functional interface for transactional operations.
+     */
+    @FunctionalInterface
+    private interface TransactionalOperation<T> {
+        void execute(Transaction tx, T item) throws Exception;
     }
 
-    @Override
-    public List<Double> upsertVertexProperty(List<UpsertVertexPropertyParams.VertexUpdate> updates) {
+    /**
+     * Functional interface for transactional operations without parameters.
+     */
+    @FunctionalInterface
+    private interface TransactionalOperationNoParam {
+        void execute(Transaction tx) throws Exception;
+    }
+
+    /**
+     * Execute a list of operations within transactions, measuring latency for each batch.
+     * @param items List of items to process
+     * @param operation The operation to execute for each item
+     * @param batchSize Number of items to process in each transaction
+     * @return List of per-operation latencies in microseconds
+     */
+    private <T> List<Double> transactionalExecute(List<T> items, TransactionalOperation<T> operation, int batchSize) {
         List<Double> latencies = new ArrayList<>();
 
-        for (UpsertVertexPropertyParams.VertexUpdate update : updates) {
+        for (int i = 0; i < items.size(); i += batchSize) {
+            int end = Math.min(i + batchSize, items.size());
+            List<T> batch = items.subList(i, end);
+
             long startNs = System.nanoTime();
             try (Transaction tx = db.beginTx()) {
-                Long neo4jId = nodeIdMap.get(update.getId());
-                if (neo4jId != null) {
-                    Node node = tx.getNodeById(neo4jId);
-                    for (Map.Entry<String, Object> entry : update.getProperties().entrySet()) {
-                        node.setProperty(entry.getKey(), entry.getValue());
-                    }
+                for (T item : batch) {
+                    operation.execute(tx, item);
                 }
                 tx.commit();
             } catch (Exception e) {
-                // Silent failure
+                errorCount++;
             }
             long endNs = System.nanoTime();
-            latencies.add((endNs - startNs) / 1000.0);
+            // Calculate per-operation latency by dividing batch latency by actual batch size
+            double batchLatencyUs = (endNs - startNs) / 1000.0;
+            latencies.add(batchLatencyUs / batch.size());
+        }
+
+        return latencies;
+    }
+
+    /**
+     * Execute operations without parameters within transactions.
+     * @param count Number of operations to execute
+     * @param operation The operation to execute
+     * @param batchSize Number of operations per transaction (1 = no batching)
+     * @return List of per-operation latencies in microseconds
+     */
+    private List<Double> transactionalExecute(int count, TransactionalOperationNoParam operation, int batchSize) {
+        List<Double> latencies = new ArrayList<>();
+
+        for (int i = 0; i < count; i += batchSize) {
+            int end = Math.min(i + batchSize, count);
+            int batchCount = end - i;
+
+            long startNs = System.nanoTime();
+            try (Transaction tx = db.beginTx()) {
+                for (int j = 0; j < batchCount; j++) {
+                    operation.execute(tx);
+                }
+                tx.commit();
+            } catch (Exception e) {
+                errorCount += batchCount;
+            }
+            long endNs = System.nanoTime();
+            // Calculate per-operation latency by dividing batch latency by actual batch size
+            double batchLatencyUs = (endNs - startNs) / 1000.0;
+            latencies.add(batchLatencyUs / batchCount);
         }
 
         return latencies;
     }
 
     @Override
-    public List<Double> removeVertex(List<Long> ids) {
-        List<Double> latencies = new ArrayList<>();
+    public List<Double> addVertex(int count, int batchSize) {
+        return transactionalExecute(count, tx -> {
+            Node node = tx.createNode(Label.label(NODE_LABEL));
+        }, batchSize);
+    }
 
-        for (Long id : ids) {
-            long startNs = System.nanoTime();
-            try (Transaction tx = db.beginTx()) {
-                Long neo4jId = nodeIdMap.get(id);
-                if (neo4jId != null) {
-                    Node node = tx.getNodeById(neo4jId);
-                    // Delete all relationships first
-                    for (Relationship rel : node.getRelationships()) {
+    @Override
+    public List<Double> updateVertexProperty(List<UpdateVertexPropertyParams.VertexUpdate> updates, int batchSize) {
+        return transactionalExecute(updates, (tx, update) -> {
+            Node node = tx.getNodeById((Long) update.getSystemId());
+            if (node != null) {
+                for (Map.Entry<String, Object> entry : update.getProperties().entrySet()) {
+                    node.setProperty(entry.getKey(), entry.getValue());
+                }
+            }
+        }, batchSize);
+    }
+
+    @Override
+    public List<Double> removeVertex(List<Object> systemIds, int batchSize) {
+        return transactionalExecute(systemIds, (tx, systemId) -> {
+            Node node = tx.getNodeById((Long) systemId);
+            if (node != null) {
+                // Delete all relationships first
+                for (Relationship rel : node.getRelationships()) {
+                    rel.delete();
+                }
+                node.delete();
+            }
+        }, batchSize);
+    }
+
+    @Override
+    public List<Double> addEdge(String label, List<AddEdgeParams.EdgePair> pairs, int batchSize) {
+        RelationshipType relType = RelationshipType.withName(label);
+        return transactionalExecute(pairs, (tx, pair) -> {
+            Node srcNode = tx.getNodeById((Long) pair.getSrcSystemId());
+            Node dstNode = tx.getNodeById((Long) pair.getDstSystemId());
+            if (srcNode != null && dstNode != null) {
+                srcNode.createRelationshipTo(dstNode, relType);
+            }
+        }, batchSize);
+    }
+
+    @Override
+    public List<Double> updateEdgeProperty(String label, List<UpdateEdgePropertyParams.EdgeUpdate> updates, int batchSize) {
+        RelationshipType relType = RelationshipType.withName(label);
+        return transactionalExecute(updates, (tx, update) -> {
+            Node srcNode = tx.getNodeById((Long) update.getSrcSystemId());
+            Node dstNode = tx.getNodeById((Long) update.getDstSystemId());
+            if (srcNode != null && dstNode != null) {
+                // Find the edge between src and dst
+                for (Relationship rel : srcNode.getRelationships(Direction.OUTGOING, relType)) {
+                    if (rel.getEndNode().equals(dstNode)) {
+                        for (Map.Entry<String, Object> entry : update.getProperties().entrySet()) {
+                            rel.setProperty(entry.getKey(), entry.getValue());
+                        }
+                        break;
+                    }
+                }
+            }
+        }, batchSize);
+    }
+
+    @Override
+    public List<Double> removeEdge(String label, List<RemoveEdgeParams.EdgePair> pairs, int batchSize) {
+        RelationshipType relType = RelationshipType.withName(label);
+        return transactionalExecute(pairs, (tx, pair) -> {
+            Node srcNode = tx.getNodeById((Long) pair.getSrcSystemId());
+            Node dstNode = tx.getNodeById((Long) pair.getDstSystemId());
+            if (srcNode != null && dstNode != null) {
+                // Find and delete the edge
+                for (Relationship rel : srcNode.getRelationships(Direction.OUTGOING, relType)) {
+                    if (rel.getEndNode().equals(dstNode)) {
                         rel.delete();
+                        break;
                     }
-                    node.delete();
-                    nodeIdMap.remove(id);
                 }
-                tx.commit();
-            } catch (Exception e) {
-                // Silent failure
             }
-            long endNs = System.nanoTime();
-            latencies.add((endNs - startNs) / 1000.0);
-        }
-
-        return latencies;
+        }, batchSize);
     }
 
     @Override
-    public List<Double> addEdge(String label, List<AddEdgeParams.EdgePair> pairs) {
-        List<Double> latencies = new ArrayList<>();
+    public List<Double> getNbrs(String direction, List<Object> systemIds, int batchSize) {
+        // Map direction string to Neo4j Direction enum
+        Direction dir;
+        switch (direction.toUpperCase()) {
+            case "OUT": case "OUTGOING":
+                dir = Direction.OUTGOING;
+                break;
+            case "IN": case "INCOMING":
+                dir = Direction.INCOMING;
+                break;
+            case "BOTH":
+                dir = Direction.BOTH;
+                break;
+            default:
+                throw new IllegalArgumentException("Invalid direction: " + direction);
+        }
+
+        return transactionalExecute(systemIds, (tx, systemId) -> {
+            Node node = tx.getNodeById((Long) systemId);
+            if (node != null) {
+                for (Relationship rel : node.getRelationships(dir)) {
+                    Node neighbor = rel.getOtherNode(node);
+                    blackhole.consume(neighbor.getProperty("id"));
+                }
+            }
+        }, batchSize);
+    }
+
+    @Override
+    public List<Double> getVertexByProperty(List<GetVertexByPropertyParams.PropertyQuery> queries, int batchSize) {
+        return transactionalExecute(queries, (tx, query) -> {
+            // Use native findNodes API to leverage indexes
+            try (ResourceIterator<Node> nodes = tx.findNodes(Label.label(NODE_LABEL), query.getKey(), query.getValue())) {
+                nodes.forEachRemaining(blackhole::consume);
+            }
+        }, batchSize);
+    }
+
+    @Override
+    public List<Double> getEdgeByProperty(String label, List<GetEdgeByPropertyParams.PropertyQuery> queries, int batchSize) {
         RelationshipType relType = RelationshipType.withName(label);
-
-        for (AddEdgeParams.EdgePair pair : pairs) {
-            long startNs = System.nanoTime();
-            try (Transaction tx = db.beginTx()) {
-                Long srcNeo4jId = nodeIdMap.get(pair.getSrc());
-                Long dstNeo4jId = nodeIdMap.get(pair.getDst());
-                if (srcNeo4jId != null && dstNeo4jId != null) {
-                    Node srcNode = tx.getNodeById(srcNeo4jId);
-                    Node dstNode = tx.getNodeById(dstNeo4jId);
-                    srcNode.createRelationshipTo(dstNode, relType);
-                }
-                tx.commit();
-            } catch (Exception e) {
-                // Silent failure
+        return transactionalExecute(queries, (tx, query) -> {
+            // Use Native API for efficient edge property lookup with index
+            // This leverages relationship property indexes (Neo4j 4.3+)
+            try (ResourceIterator<Relationship> relationships =
+                    tx.findRelationships(relType, query.getKey(), query.getValue())) {
+                // Consume results to ensure database actually performs the lookup
+                relationships.forEachRemaining(blackhole::consume);
             }
-            long endNs = System.nanoTime();
-            latencies.add((endNs - startNs) / 1000.0);
-        }
+        }, batchSize);
+    }
 
-        return latencies;
+    public int getErrorCount() {
+        return errorCount;
+    }
+
+    public void resetErrorCount() {
+        errorCount = 0;
     }
 
     @Override
-    public List<Double> upsertEdgeProperty(String label, List<UpsertEdgePropertyParams.EdgeUpdate> updates) {
-        List<Double> latencies = new ArrayList<>();
-        RelationshipType relType = RelationshipType.withName(label);
-
-        for (UpsertEdgePropertyParams.EdgeUpdate update : updates) {
-            long startNs = System.nanoTime();
-            try (Transaction tx = db.beginTx()) {
-                Long srcNeo4jId = nodeIdMap.get(update.getSrc());
-                Long dstNeo4jId = nodeIdMap.get(update.getDst());
-                if (srcNeo4jId != null && dstNeo4jId != null) {
-                    Node srcNode = tx.getNodeById(srcNeo4jId);
-                    Node dstNode = tx.getNodeById(dstNeo4jId);
-
-                    // Find the edge between src and dst
-                    for (Relationship rel : srcNode.getRelationships(Direction.OUTGOING, relType)) {
-                        if (rel.getEndNode().getId() == dstNeo4jId) {
-                            for (Map.Entry<String, Object> entry : update.getProperties().entrySet()) {
-                                rel.setProperty(entry.getKey(), entry.getValue());
-                            }
-                            break;
-                        }
-                    }
-                }
-                tx.commit();
-            } catch (Exception e) {
-                // Silent failure
-            }
-            long endNs = System.nanoTime();
-            latencies.add((endNs - startNs) / 1000.0);
-        }
-
-        return latencies;
-    }
-
-    @Override
-    public List<Double> removeEdge(String label, List<RemoveEdgeParams.EdgePair> pairs) {
-        List<Double> latencies = new ArrayList<>();
-        RelationshipType relType = RelationshipType.withName(label);
-
-        for (RemoveEdgeParams.EdgePair pair : pairs) {
-            long startNs = System.nanoTime();
-            try (Transaction tx = db.beginTx()) {
-                Long srcNeo4jId = nodeIdMap.get(pair.getSrc());
-                Long dstNeo4jId = nodeIdMap.get(pair.getDst());
-                if (srcNeo4jId != null && dstNeo4jId != null) {
-                    Node srcNode = tx.getNodeById(srcNeo4jId);
-
-                    // Find and delete the edge
-                    for (Relationship rel : srcNode.getRelationships(Direction.OUTGOING, relType)) {
-                        if (rel.getEndNode().getId() == dstNeo4jId) {
-                            rel.delete();
-                            break;
-                        }
-                    }
-                }
-                tx.commit();
-            } catch (Exception e) {
-                // Silent failure
-            }
-            long endNs = System.nanoTime();
-            latencies.add((endNs - startNs) / 1000.0);
-        }
-
-        return latencies;
-    }
-
-    @Override
-    public List<Double> getNbrs(String direction, List<Long> ids) {
-        List<Double> latencies = new ArrayList<>();
-        Direction dir = Direction.valueOf(direction);
-
-        for (Long id : ids) {
-            long startNs = System.nanoTime();
-            try (Transaction tx = db.beginTx()) {
-                Long neo4jId = nodeIdMap.get(id);
-                if (neo4jId != null) {
-                    Node node = tx.getNodeById(neo4jId);
-                    List<Long> neighbors = new ArrayList<>();
-                    for (Relationship rel : node.getRelationships(dir)) {
-                        Node neighbor = rel.getOtherNode(node);
-                        if (neighbor.hasProperty("id")) {
-                            neighbors.add((Long) neighbor.getProperty("id"));
-                        }
-                    }
-                }
-                tx.commit();
-            } catch (Exception e) {
-                // Silent failure
-            }
-            long endNs = System.nanoTime();
-            latencies.add((endNs - startNs) / 1000.0);
-        }
-
-        return latencies;
-    }
-
-    @Override
-    public List<Double> getVertexByProperty(List<GetVertexByPropertyParams.PropertyQuery> queries) {
-        List<Double> latencies = new ArrayList<>();
-
-        for (GetVertexByPropertyParams.PropertyQuery query : queries) {
-            long startNs = System.nanoTime();
-            try (Transaction tx = db.beginTx()) {
-                List<Node> results = new ArrayList<>();
-                for (Node node : tx.getAllNodes()) {
-                    if (node.hasLabel(Label.label(NODE_LABEL)) && node.hasProperty(query.getKey())) {
-                        Object value = node.getProperty(query.getKey());
-                        if (value.equals(query.getValue())) {
-                            results.add(node);
-                        }
-                    }
-                }
-                tx.commit();
-            } catch (Exception e) {
-                // Silent failure
-            }
-            long endNs = System.nanoTime();
-            latencies.add((endNs - startNs) / 1000.0);
-        }
-
-        return latencies;
-    }
-
-    @Override
-    public List<Double> getEdgeByProperty(String label, List<GetEdgeByPropertyParams.PropertyQuery> queries) {
-        List<Double> latencies = new ArrayList<>();
-        RelationshipType relType = RelationshipType.withName(label);
-
-        for (GetEdgeByPropertyParams.PropertyQuery query : queries) {
-            long startNs = System.nanoTime();
-            try (Transaction tx = db.beginTx()) {
-                List<Relationship> results = new ArrayList<>();
-                for (Node node : tx.getAllNodes()) {
-                    for (Relationship rel : node.getRelationships(Direction.OUTGOING, relType)) {
-                        if (rel.hasProperty(query.getKey())) {
-                            Object value = rel.getProperty(query.getKey());
-                            if (value.equals(query.getValue())) {
-                                results.add(rel);
-                            }
-                        }
-                    }
-                }
-                tx.commit();
-            } catch (Exception e) {
-                // Silent failure
-            }
-            long endNs = System.nanoTime();
-            latencies.add((endNs - startNs) / 1000.0);
-        }
-
-        return latencies;
-    }
-
-    private void deleteDirectory(File directory) throws IOException {
-        if (directory.exists()) {
-            Files.walk(directory.toPath())
-                .sorted(Comparator.reverseOrder())
-                .map(Path::toFile)
-                .forEach(File::delete);
-        }
+    public Object getSystemId(Long originId) {
+        return nodeIdsMap.get(originId);
     }
 }

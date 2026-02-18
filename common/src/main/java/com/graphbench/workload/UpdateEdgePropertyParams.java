@@ -4,9 +4,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Parameters for UPSERT_EDGE_PROPERTY task.
+ * Parameters for UPDATE_EDGE_PROPERTY task.
  */
-public class UpsertEdgePropertyParams {
+public class UpdateEdgePropertyParams {
     private String label;
     private List<EdgeUpdate> updates;
 
@@ -29,6 +29,8 @@ public class UpsertEdgePropertyParams {
     public static class EdgeUpdate {
         private long src;
         private long dst;
+        private Object srcSystemId;
+        private Object dstSystemId;
         private Map<String, Object> properties;
 
         public long getSrc() {
@@ -45,6 +47,22 @@ public class UpsertEdgePropertyParams {
 
         public void setDst(long dst) {
             this.dst = dst;
+        }
+
+        public Object getSrcSystemId() {
+            return srcSystemId;
+        }
+
+        public void setSrcSystemId(Object srcSystemId) {
+            this.srcSystemId = srcSystemId;
+        }
+
+        public Object getDstSystemId() {
+            return dstSystemId;
+        }
+
+        public void setDstSystemId(Object dstSystemId) {
+            this.dstSystemId = dstSystemId;
         }
 
         public Map<String, Object> getProperties() {

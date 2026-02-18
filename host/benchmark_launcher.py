@@ -102,7 +102,8 @@ class BenchmarkLauncher:
                 container = self.docker_manager.start_container(
                     self.database_name,
                     dataset_path,
-                    compiled_dir
+                    compiled_dir,
+                    callback_url
                 )
 
                 try:

@@ -28,6 +28,8 @@ public class AddEdgeParams {
     public static class EdgePair {
         private long src;
         private long dst;
+        private Object srcSystemId;
+        private Object dstSystemId;
 
         public long getSrc() {
             return src;
@@ -43,6 +45,22 @@ public class AddEdgeParams {
 
         public void setDst(long dst) {
             this.dst = dst;
+        }
+
+        public Object getSrcSystemId() {
+            return srcSystemId;
+        }
+
+        public void setSrcSystemId(Object srcSystemId) {
+            this.srcSystemId = srcSystemId;
+        }
+
+        public Object getDstSystemId() {
+            return dstSystemId;
+        }
+
+        public void setDstSystemId(Object dstSystemId) {
+            this.dstSystemId = dstSystemId;
         }
     }
 }

@@ -4,9 +4,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Parameters for UPSERT_VERTEX_PROPERTY task.
+ * Parameters for UPDATE_VERTEX_PROPERTY task.
  */
-public class UpsertVertexPropertyParams {
+public class UpdateVertexPropertyParams {
     private List<VertexUpdate> updates;
 
     public List<VertexUpdate> getUpdates() {
@@ -19,6 +19,7 @@ public class UpsertVertexPropertyParams {
 
     public static class VertexUpdate {
         private long id;
+        private Object systemId;
         private Map<String, Object> properties;
 
         public long getId() {
@@ -27,6 +28,14 @@ public class UpsertVertexPropertyParams {
 
         public void setId(long id) {
             this.id = id;
+        }
+
+        public Object getSystemId() {
+            return systemId;
+        }
+
+        public void setSystemId(Object systemId) {
+            this.systemId = systemId;
         }
 
         public Map<String, Object> getProperties() {

@@ -76,7 +76,7 @@
                             <transformers>
                                 <!-- Set main class for executable JAR -->
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                                    <mainClass>com.graphbench.neo4j.BenchmarkServer</mainClass>
+                                    <mainClass>com.graphbench.api.BenchmarkServer</mainClass>
                                 </transformer>
 
                                 <!-- Merge META-INF/services files from all dependencies -->

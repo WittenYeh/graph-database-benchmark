@@ -45,7 +45,8 @@ class DockerManager:
         self,
         database_name: str,
         dataset_path: Path,
-        compiled_workload_dir: Path
+        compiled_workload_dir: Path,
+        progress_callback_url: str = None
     ):
         """Start Docker container with mounted volumes"""
         db_config = self.database_config[database_name]
@@ -64,6 +65,19 @@ class DockerManager:
         # Get project root directory (parent of host directory)
         project_root = Path(__file__).parent.parent.parent.absolute()
 
+        # Build environment variables
+        env_vars = {
+            'DATASET_FILE': f'/workspace/{dataset_path.relative_to(project_root)}',
+            'WORKLOAD_DIR': '/data/workloads',
+            'HEAP_SIZE': db_config['config'].get('heap_size', '4G'),
+            'API_PORT': str(api_port),  # Pass API port as environment variable
+            'DB_TYPE': database_name  # Pass database type for BenchmarkServer
+        }
+
+        # Add progress callback URL if provided
+        if progress_callback_url:
+            env_vars['PROGRESS_CALLBACK_URL'] = progress_callback_url
+
         # Start new container with host network mode
         # Using host network allows container to access localhost:8888 directly
         container = self.client.containers.run(
@@ -75,12 +89,7 @@ class DockerManager:
                 str(project_root): {'bind': '/workspace', 'mode': 'ro'},
                 str(compiled_workload_dir.absolute()): {'bind': '/data/workloads', 'mode': 'ro'}
             },
-            environment={
-                'DATASET_FILE': f'/workspace/{dataset_path.relative_to(project_root)}',
-                'WORKLOAD_DIR': '/data/workloads',
-                'HEAP_SIZE': db_config['config'].get('heap_size', '4G'),
-                'API_PORT': str(api_port)  # Pass API port as environment variable
-            }
+            environment=env_vars
         )
 
         # Wait for container to be ready

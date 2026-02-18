@@ -1,17 +1,23 @@
 """
-WorkloadCompiler - Compiles workload configurations to native API workload files
+WorkloadCompiler - Optimized for "Reset/Restore" Benchmark Model
 """
 import json
 import random
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 
-
 class WorkloadCompiler:
     def __init__(self, database_config: Dict[str, Any]):
         self.database_config = database_config
         self.dataset_path: Optional[Path] = None
-        self.dataset_edges: List[Tuple[int, int]] = []  # Cache all edges in memory
+
+        # Reservoir sampling: Store only samples from the initial dataset
+        self.SAMPLE_SIZE = 100_000
+        self.sampled_nodes: List[int] = []
+        self.sampled_edges: List[Tuple[int, int]] = []
+
+        # Core boundary: The maximum ID in the initial dataset
+        self.max_dataset_id = 0
 
     def compile_workload(
         self,
@@ -21,304 +27,235 @@ class WorkloadCompiler:
         seed: Optional[int] = None,
         dataset_path: Optional[Path] = None
     ) -> Path:
-        """
-        Compile workload to native API format
-        Returns path to directory containing compiled JSON files
-        """
         if seed is not None:
             random.seed(seed)
 
-        # Store dataset path and load edges for random sampling
+        # 1. Scan the initial dataset (Benchmark Baseline)
         if dataset_path:
-            self.dataset_path = dataset_path
-            self.dataset_edges = self._load_dataset_edges(dataset_path)
-            print(f"  Dataset has {len(self.dataset_edges)} edges loaded for sampling")
+            self._scan_dataset(dataset_path)
 
-        # Create output directory (clean if exists)
         output_dir = Path(f"workloads/compiled/{database_name}_{dataset_name}")
         if output_dir.exists():
             import shutil
             shutil.rmtree(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Compile each task
         tasks = workload_config.get('tasks', [])
         for idx, task in enumerate(tasks):
             task_name = task['name']
-            workload_data = self._compile_task(task, dataset_name)
 
-            # Save to JSON file
+            # ★ Key modification: No need to reset generator state before each task
+            # because the graph is restored. However, we must ensure all operations
+            # are based on self.sampled_nodes (initial data).
+            workload_data = self._compile_task(task)
+
             output_file = output_dir / f"{idx:02d}_{task_name}.json"
             with open(output_file, 'w') as f:
                 json.dump(workload_data, f, indent=2)
 
         return output_dir
 
-    def _compile_task(self, task: Dict[str, Any], dataset_name: str) -> Dict[str, Any]:
-        """Compile a single task to native API format"""
+    def _scan_dataset(self, dataset_path: Path):
+        """Scan and sample the initial dataset"""
+        print(f"Scanning baseline dataset: {dataset_path}...")
+        edge_count = 0
+
+        with open(dataset_path, 'r') as f:
+            for line in f:
+                if not line or line.startswith(('%', '#')): continue
+                parts = line.split()
+                if len(parts) < 2: continue
+
+                try:
+                    src, dst = int(parts[0]), int(parts[1])
+
+                    # Track boundary for AddVertex
+                    self.max_dataset_id = max(self.max_dataset_id, src, dst)
+
+                    # Reservoir sampling for edges
+                    if len(self.sampled_edges) < self.SAMPLE_SIZE:
+                        self.sampled_edges.append((src, dst))
+                    else:
+                        r = random.randint(0, edge_count)
+                        if r < self.SAMPLE_SIZE:
+                            self.sampled_edges[r] = (src, dst)
+
+                    # Reservoir sampling for nodes
+                    if len(self.sampled_nodes) < self.SAMPLE_SIZE:
+                        self.sampled_nodes.append(src)
+                        # Could also sample dst, depending on distribution
+                    else:
+                        r = random.randint(0, edge_count)
+                        if r < self.SAMPLE_SIZE:
+                            self.sampled_nodes[r] = src
+
+                    edge_count += 1
+                except ValueError:
+                    continue
+        print(f"Baseline Scanned. Max ID: {self.max_dataset_id}")
+
+    def _compile_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
         task_name = task['name']
         ops = task.get('ops', 0)
+        batch_sizes = task.get('batch_sizes', None)
 
-        if task_name == 'load_graph':
-            return self._compile_load_graph()
-        elif task_name == 'add_vertex':
-            return self._compile_add_vertex(ops)
-        elif task_name == 'upsert_vertex_property':
-            return self._compile_upsert_vertex_property(ops)
+        if task_name == 'add_vertex':
+            result = self._compile_add_vertex(ops)
         elif task_name == 'remove_vertex':
-            return self._compile_remove_vertex(ops)
+            result = self._compile_remove_vertex(ops)
         elif task_name == 'add_edge':
-            return self._compile_add_edge(ops)
-        elif task_name == 'upsert_edge_property':
-            return self._compile_upsert_edge_property(ops)
+            result = self._compile_add_edge(ops)
         elif task_name == 'remove_edge':
-            return self._compile_remove_edge(ops)
+            result = self._compile_remove_edge(ops)
+        elif task_name in ['update_vertex_property', 'get_vertex_by_property']:
+            is_write = (task_name == 'update_vertex_property')
+            result = self._compile_property_task(ops, is_edge=False, is_write=is_write)
+        elif task_name in ['update_edge_property', 'get_edge_by_property']:
+            is_write = (task_name == 'update_edge_property')
+            result = self._compile_property_task(ops, is_edge=True, is_write=is_write)
         elif task_name == 'get_nbrs':
-            direction = task.get('direction', 'OUT')
-            return self._compile_get_nbrs(ops, direction)
-        elif task_name == 'get_vertex_by_property':
-            return self._compile_get_vertex_by_property(ops)
-        elif task_name == 'get_edge_by_property':
-            return self._compile_get_edge_by_property(ops)
+            result = self._compile_get_nbrs(ops, task.get('direction', 'OUT'))
+        else:
+            return {"task_type": task_name.upper(), "ops_count": 0, "parameters": {}}
 
-        return {}
+        if batch_sizes is not None:
+            result['batch_sizes'] = batch_sizes
+        return result
 
-    def _compile_load_graph(self) -> Dict[str, Any]:
-        """Compile LOAD_GRAPH task"""
-        return {
-            "task_type": "LOAD_GRAPH",
-            "ops_count": 0,
-            "parameters": {}
-        }
+    # --- Logic implementation for Restore Mechanism ---
 
     def _compile_add_vertex(self, ops: int) -> Dict[str, Any]:
-        """Compile ADD_VERTEX task - generate random vertex IDs"""
-        ids = []
-        for i in range(ops):
-            # Generate random vertex ID
-            vertex_id = random.randint(1000000, 9999999)
-            ids.append(vertex_id)
-
+        """
+        Logic:
+        Since the graph is restored, we can safely add the same count of vertices every time.
+        The database will assign internal IDs automatically.
+        """
         return {
             "task_type": "ADD_VERTEX",
             "ops_count": ops,
-            "parameters": {
-                "ids": ids
-            }
-        }
-
-    def _compile_upsert_vertex_property(self, ops: int) -> Dict[str, Any]:
-        """Compile UPSERT_VERTEX_PROPERTY task"""
-        updates = []
-        for i in range(ops):
-            # Sample a random node from dataset
-            node_id = self._sample_node_from_dataset()
-
-            # Generate random properties
-            properties = {
-                "name": f"Node_{node_id}",
-                "value": random.randint(1, 100),
-                "active": random.choice([True, False])
-            }
-
-            updates.append({
-                "id": node_id,
-                "properties": properties
-            })
-
-        return {
-            "task_type": "UPSERT_VERTEX_PROPERTY",
-            "ops_count": ops,
-            "parameters": {
-                "updates": updates
-            }
+            "parameters": {"count": ops}
         }
 
     def _compile_remove_vertex(self, ops: int) -> Dict[str, Any]:
-        """Compile REMOVE_VERTEX task - sample random nodes from dataset"""
-        ids = []
-        for i in range(ops):
-            node_id = self._sample_node_from_dataset()
-            ids.append(node_id)
-
+        """
+        Logic:
+        Must select nodes from self.sampled_nodes (initial data).
+        If we select a randomly generated ID, that node won't exist because the graph was restored,
+        making the delete operation invalid (Benchmark failure).
+        """
+        ids = [self._sample_existing_node() for _ in range(ops)]
         return {
             "task_type": "REMOVE_VERTEX",
             "ops_count": ops,
             "parameters": {
-                "ids": ids
+                "ids": ids,
+                "detach": True # Must detach, because initial nodes definitely have edges
             }
         }
 
     def _compile_add_edge(self, ops: int) -> Dict[str, Any]:
-        """Compile ADD_EDGE task - sample random node pairs from dataset"""
+        """
+        Logic:
+        Both endpoints must be from self.sampled_nodes (initial data).
+        Cannot connect to a non-existent ID (e.g., nodes added by other tasks that were wiped).
+        """
         pairs = []
-        for i in range(ops):
-            src_id = self._sample_node_from_dataset()
-            dst_id = self._sample_node_from_dataset()
-
+        for _ in range(ops):
             pairs.append({
-                "src": src_id,
-                "dst": dst_id
+                "src": self._sample_existing_node(),
+                "dst": self._sample_existing_node()
             })
-
         return {
             "task_type": "ADD_EDGE",
             "ops_count": ops,
-            "parameters": {
-                "label": "knows",
-                "pairs": pairs
-            }
-        }
-
-    def _compile_upsert_edge_property(self, ops: int) -> Dict[str, Any]:
-        """Compile UPSERT_EDGE_PROPERTY task"""
-        updates = []
-        for i in range(ops):
-            # Sample a random edge from dataset
-            src_id, dst_id = self._sample_edge_from_dataset()
-
-            # Generate random properties
-            properties = {
-                "weight": round(random.uniform(0.1, 1.0), 2),
-                "since": f"2023-{random.randint(1, 12):02d}-{random.randint(1, 28):02d}"
-            }
-
-            updates.append({
-                "src": src_id,
-                "dst": dst_id,
-                "properties": properties
-            })
-
-        return {
-            "task_type": "UPSERT_EDGE_PROPERTY",
-            "ops_count": ops,
-            "parameters": {
-                "label": "MyEdge",
-                "updates": updates
-            }
+            "parameters": {"label": "knows", "pairs": pairs}
         }
 
     def _compile_remove_edge(self, ops: int) -> Dict[str, Any]:
-        """Compile REMOVE_EDGE task - sample random edges from dataset"""
+        """
+        Logic:
+        Must select from self.sampled_edges (initial edges).
+        """
         pairs = []
-        for i in range(ops):
-            src_id, dst_id = self._sample_edge_from_dataset()
-
-            pairs.append({
-                "src": src_id,
-                "dst": dst_id
-            })
-
+        for _ in range(ops):
+            src, dst = self._sample_existing_edge()
+            pairs.append({"src": src, "dst": dst})
         return {
             "task_type": "REMOVE_EDGE",
             "ops_count": ops,
-            "parameters": {
-                "label": "MyEdge",
-                "pairs": pairs
-            }
+            "parameters": {"label": "knows", "pairs": pairs}
         }
 
-    def _compile_get_nbrs(self, ops: int, direction: str = "OUT") -> Dict[str, Any]:
-        """Compile GET_NBRS task - sample random nodes from dataset"""
-        ids = []
-        for i in range(ops):
-            node_id = self._sample_node_from_dataset()
-            ids.append(node_id)
+    def _compile_property_task(self, ops: int, is_edge: bool, is_write: bool) -> Dict[str, Any]:
+        """
+        Logic:
+        Must also target initial data (Existing Data).
+        Update: Update properties of initial data.
+        Get: Query properties of initial data.
+        """
+        items = []
+        for _ in range(ops):
+            if is_edge:
+                src, dst = self._sample_existing_edge()
+                props = self._generate_deterministic_props(src)
+                if is_write:
+                    items.append({"src": src, "dst": dst, "properties": props})
+                else:
+                    key = random.choice(list(props.keys()))
+                    items.append({"key": key, "value": props[key]})
+            else:
+                node_id = self._sample_existing_node()
+                props = self._generate_deterministic_props(node_id)
+                if is_write:
+                    items.append({"id": node_id, "properties": props})
+                else:
+                    key = random.choice(list(props.keys()))
+                    items.append({"key": key, "value": props[key]})
 
+        if is_write:
+            task_type = f"UPDATE_{'EDGE' if is_edge else 'VERTEX'}_PROPERTY"
+        else:
+            task_type = f"GET_{'EDGE' if is_edge else 'VERTEX'}_BY_PROPERTY"
+        param_key = "updates" if is_write else "queries"
+
+        res = {
+            "task_type": task_type,
+            "ops_count": ops,
+            "parameters": {param_key: items}
+        }
+        if is_edge:
+            res["parameters"]["label"] = "knows"
+        return res
+
+    def _compile_get_nbrs(self, ops: int, direction: str) -> Dict[str, Any]:
+        """Query neighbors of initial nodes"""
+        ids = [self._sample_existing_node() for _ in range(ops)]
         return {
             "task_type": "GET_NBRS",
             "ops_count": ops,
-            "parameters": {
-                "direction": direction,
-                "ids": ids
-            }
+            "parameters": {"direction": direction, "ids": ids}
         }
 
-    def _compile_get_vertex_by_property(self, ops: int) -> Dict[str, Any]:
-        """Compile GET_VERTEX_BY_PROPERTY task"""
-        queries = []
-        for i in range(ops):
-            # Generate random property queries
-            key = random.choice(["name", "value", "active"])
-            if key == "name":
-                node_id = self._sample_node_from_dataset()
-                value = f"Node_{node_id}"
-            elif key == "value":
-                value = random.randint(1, 100)
-            else:  # active
-                value = random.choice([True, False])
+    # --- Helpers ---
 
-            queries.append({
-                "key": key,
-                "value": value
-            })
+    def _sample_existing_node(self) -> int:
+        """Return only nodes from the initial dataset"""
+        if not self.sampled_nodes: return 1
+        return random.choice(self.sampled_nodes)
 
+    def _sample_existing_edge(self) -> Tuple[int, int]:
+        """Return only edges from the initial dataset"""
+        if not self.sampled_edges: return (1, 2)
+        return random.choice(self.sampled_edges)
+
+    def _generate_deterministic_props(self, seed_id: int) -> Dict[str, Any]:
+        """
+        ★ Core Logic: Generate deterministic properties based on ID.
+        Even if Get and Update tasks are unrelated, as long as they target the same ID,
+        the generated properties are consistent.
+        """
         return {
-            "task_type": "GET_VERTEX_BY_PROPERTY",
-            "ops_count": ops,
-            "parameters": {
-                "queries": queries
-            }
+            "weight": round((seed_id % 100) / 100.0, 2),
+            "age": seed_id % 90 + 10,
+            "flag": (seed_id % 2 == 0)
         }
-
-    def _compile_get_edge_by_property(self, ops: int) -> Dict[str, Any]:
-        """Compile GET_EDGE_BY_PROPERTY task"""
-        queries = []
-        for i in range(ops):
-            # Generate random property queries
-            key = random.choice(["weight", "since"])
-            if key == "weight":
-                value = round(random.uniform(0.1, 1.0), 2)
-            else:  # since
-                value = f"2023-{random.randint(1, 12):02d}-{random.randint(1, 28):02d}"
-
-            queries.append({
-                "key": key,
-                "value": value
-            })
-
-        return {
-            "task_type": "GET_EDGE_BY_PROPERTY",
-            "ops_count": ops,
-            "parameters": {
-                "label": "MyEdge",
-                "queries": queries
-            }
-        }
-
-    def _load_dataset_edges(self, dataset_path: Path) -> List[Tuple[int, int]]:
-        """Load all edges from dataset into memory for efficient random sampling"""
-        edges = []
-        with open(dataset_path, 'r') as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith('%'):
-                    continue
-                parts = line.split()
-                if len(parts) >= 2:
-                    try:
-                        # Skip header line
-                        if len(parts) == 3 and int(parts[0]) > 1000:
-                            continue
-                        src = int(parts[0])
-                        dst = int(parts[1])
-                        edges.append((src, dst))
-                    except ValueError:
-                        continue
-        return edges
-
-    def _sample_node_from_dataset(self) -> int:
-        """Sample a random node ID from dataset edges"""
-        if not self.dataset_edges:
-            return random.randint(1, 1000)
-
-        # Pick a random edge and randomly choose src or dst
-        edge = random.choice(self.dataset_edges)
-        return random.choice([edge[0], edge[1]])
-
-    def _sample_edge_from_dataset(self) -> Tuple[int, int]:
-        """Sample a random edge from dataset"""
-        if not self.dataset_edges:
-            return (random.randint(1, 1000), random.randint(1, 1000))
-
-        return random.choice(self.dataset_edges)

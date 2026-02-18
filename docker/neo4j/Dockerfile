@@ -32,6 +32,7 @@ EXPOSE 50080
 # Set environment variables
 ENV JAVA_OPTS="-Xmx4G -Xms4G"
 ENV API_PORT=50080
+ENV DB_TYPE=neo4j
 
 # Run the benchmark server
-CMD ["sh", "-c", "java $JAVA_OPTS -jar /app/benchmark.jar"]
+CMD ["sh", "-c", "java $JAVA_OPTS -cp /app/benchmark.jar com.graphbench.api.BenchmarkServer"]
