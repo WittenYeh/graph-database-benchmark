@@ -4,7 +4,6 @@
     "dockerfile_path": "./docker/neo4j/Dockerfile",
     "container_name": "neo4j-benchmark",
     "api_port": 50080,
-    "query_language": "cypher",
     "runtime": "java",
     "config": {
       "heap_size": "4G",
@@ -16,7 +15,6 @@
     "dockerfile_path": "./docker/janusgraph/Dockerfile",
     "container_name": "janusgraph-benchmark",
     "api_port": 50081,
-    "query_language": "gremlin",
     "runtime": "java",
     "config": {
       "heap_size": "4G",
