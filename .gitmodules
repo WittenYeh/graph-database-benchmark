@@ -1,3 +1,6 @@
 [submodule "graph-datasets"]
 	path = graph-datasets
 	url = https://github.com/WittenYeh/GraphDatasets
+[submodule "third-party/Aster"]
+	path = third-party/Aster
+	url = git@github.com:NTU-Siqiang-Group/Aster.git

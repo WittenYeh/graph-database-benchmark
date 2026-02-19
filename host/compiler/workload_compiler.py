@@ -34,9 +34,11 @@ class WorkloadCompiler:
         if dataset_path:
             self._scan_dataset(dataset_path)
 
+        # Clean up the specific compiled workload directory
         output_dir = Path(f"workloads/compiled/{database_name}_{dataset_name}")
         if output_dir.exists():
             import shutil
+            print(f"  🧹 Removing old compiled workload: {output_dir}")
             shutil.rmtree(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 

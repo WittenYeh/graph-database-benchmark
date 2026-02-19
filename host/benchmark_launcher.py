@@ -88,7 +88,7 @@ class BenchmarkLauncher:
                     continue
 
                 # Compile workload to database-specific queries
-                print(f"⚙️  Compiling workload to {db_config['query_language']}...")
+                print(f"⚙️  Compiling workload...")
                 compiled_dir = self.workload_compiler.compile_workload(
                     self.workload_config,
                     self.database_name,
