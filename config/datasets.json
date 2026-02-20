@@ -1,12 +1,16 @@
 {
   "root_dir": "./graph-datasets/",
   "datasets": {
-    "coAuthorsDBLP": "coAuthorsDBLP/coAuthorsDBLP.mtx",
-    "delaunay_n13": "delaunay_n13/delaunay_n13.mtx",
-    "delaunay_n21": "delaunay_n21/delaunay_n21.mtx",
-    "cit-Patents": "cit-Patents/cit-Patents.mtx",
-    "hollywood-2009": "hollywood-2009/hollywood-2009.mtx",
-    "soc-orkut": "soc-orkut/soc-orkut.mtx",
-    "soc-livejournal": "soc-LiveJournal1/soc-LiveJournal1.mtx"
+    "coAuthorsDBLP": "coAuthorsDBLP",
+    "delaunay_n13": "delaunay_n13",
+    "delaunay_n21": "delaunay_n21",
+    "delaunay_n24": "delaunay_n24",
+    "cit-Patents": "cit-Patents",
+    "hollywood-2009": "hollywood-2009",
+    "soc-orkut": "soc-orkut",
+    "soc-livejournal": "soc-LiveJournal1",
+    "movielens-small": "movielens-small",
+    "osm-singapore": "osm-road-networks/singapore",
+    "osm-quanzhou": "osm-road-networks/quanzhou"
   }
 }

@@ -18,8 +18,7 @@ class DatasetLoader:
             return None
 
         relative_path = self.datasets[dataset_name]
-        # The config points to .mtx file; we want the parent directory with CSV files
-        csv_dir = (self.root_dir / relative_path).parent
+        csv_dir = self.root_dir / relative_path
 
         nodes_csv = csv_dir / 'nodes.csv'
         edges_csv = csv_dir / 'edges.csv'
