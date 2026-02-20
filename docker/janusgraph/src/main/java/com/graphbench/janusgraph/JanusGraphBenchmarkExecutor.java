@@ -11,91 +11,71 @@ import org.janusgraph.core.*;
 import org.janusgraph.core.schema.JanusGraphManagement;
 import org.openjdk.jmh.infra.Blackhole;
 
-import java.io.*;
-import java.nio.file.*;
-import java.nio.file.StandardCopyOption;
 import java.util.*;
 
 /**
- * JanusGraph implementation of BenchmarkExecutor using TinkerPop Structure APIs.
- * All operations are executed serially to measure per-operation latency.
+ * JanusGraph structural benchmark executor using TinkerPop Structure APIs.
+ * Loads graph topology (node IDs + edges) from CSV. Ignores property columns.
+ * Property operations are in JanusGraphPropertyBenchmarkExecutor.
  */
 public class JanusGraphBenchmarkExecutor implements BenchmarkExecutor {
     private static final String DB_PATH = "/tmp/janusgraph-benchmark-db";
     private static final String SNAPSHOT_PATH = "/tmp/janusgraph-benchmark-db-snapshot";
-    private static final String NODE_LABEL = "MyNode";
-    private static final int BATCH_SIZE = 10000;
+    protected static final String NODE_LABEL = "MyNode";
+    protected static final int LOAD_BATCH_SIZE = 10000;
 
-    private JanusGraph graph;
-    private GraphTraversalSource g;
-    private int errorCount = 0;
-    private ProgressCallback progressCallback;
-    private final Blackhole blackhole = new Blackhole("Today's password is swordfish. I understand instantiating Blackholes directly is dangerous.");
-    private Map<Long, Object> nodeIdsMap = new HashMap<>(); // Maps origin ID to JanusGraph internal ID
+    protected JanusGraph graph;
+    protected GraphTraversalSource g;
+    protected int errorCount = 0;
+    protected ProgressCallback progressCallback;
+    protected final Blackhole blackhole = new Blackhole("Today's password is swordfish. I understand instantiating Blackholes directly is dangerous.");
+    protected Map<Long, Object> nodeIdsMap = new HashMap<>();
 
     public JanusGraphBenchmarkExecutor() {
         this.progressCallback = new ProgressCallback(System.getenv("PROGRESS_CALLBACK_URL"));
     }
 
     @Override
-    public String getDatabaseName() {
-        return "janusgraph";
-    }
+    public String getDatabaseName() { return "janusgraph"; }
 
     @Override
-    public String getDatabasePath() {
-        return DB_PATH;
-    }
+    public String getDatabasePath() { return DB_PATH; }
 
     @Override
-    public String getSnapshotPath() {
-        return SNAPSHOT_PATH;
-    }
+    public String getSnapshotPath() { return SNAPSHOT_PATH; }
 
     @Override
     public void closeDatabase() throws Exception {
-        if (graph != null) {
-            graph.close();
-        }
+        if (graph != null) { graph.close(); }
     }
 
     @Override
     public void openDatabase() throws Exception {
-        JanusGraphFactory.Builder config = JanusGraphFactory.build()
+        graph = JanusGraphFactory.build()
             .set("storage.backend", "berkeleyje")
             .set("storage.directory", DB_PATH)
             .set("cache.db-cache", true)
-            .set("cache.db-cache-size", 0.5);
-
-        graph = config.open();
+            .set("cache.db-cache-size", 0.5)
+            .open();
         g = graph.traversal();
     }
 
     @Override
     public void initDatabase() throws Exception {
-        // Check and clean database directory if not empty
         BenchmarkUtils.checkAndCleanDatabaseDirectory(DB_PATH);
 
-        // Create new database with BerkeleyDB backend
-        JanusGraphFactory.Builder config = JanusGraphFactory.build()
+        graph = JanusGraphFactory.build()
             .set("storage.backend", "berkeleyje")
             .set("storage.directory", DB_PATH)
             .set("cache.db-cache", true)
-            .set("cache.db-cache-size", 0.5);
-
-        graph = config.open();
+            .set("cache.db-cache-size", 0.5)
+            .open();
         g = graph.traversal();
 
-        // Create schema
+        // Create minimal schema
         JanusGraphManagement mgmt = graph.openManagement();
-        if (mgmt.getPropertyKey("id") == null) {
-            PropertyKey idKey = mgmt.makePropertyKey("id").dataType(Long.class).make();
-            mgmt.makeEdgeLabel("MyEdge").make();
-            mgmt.makeVertexLabel(NODE_LABEL).make();
-
-            // Create unique composite index on id property
-            mgmt.buildIndex("idIndex", Vertex.class).addKey(idKey).unique().buildCompositeIndex();
-        }
+        mgmt.makeEdgeLabel("MyEdge").make();
+        mgmt.makeVertexLabel(NODE_LABEL).make();
         mgmt.commit();
 
         progressCallback.sendLogMessage("JanusGraph initialized with BerkeleyDB backend", "INFO");
@@ -103,190 +83,72 @@ public class JanusGraphBenchmarkExecutor implements BenchmarkExecutor {
 
     @Override
     public void shutdown() throws Exception {
-        if (graph != null) {
-            graph.close();
-        }
+        if (graph != null) { graph.close(); }
     }
 
     @Override
     public Map<String, Object> loadGraph(String datasetPath) throws Exception {
-        progressCallback.sendLogMessage("Loading graph from: " + datasetPath, "INFO");
-        long startTime = System.nanoTime();
-
-        int edgeCount = 0;
-        nodeIdsMap.clear(); // Clear existing map
-
-        // Stream through file and create vertices and edges in batches
-        progressCallback.sendLogMessage("Loading graph data...", "INFO");
-        try (BufferedReader reader = new BufferedReader(new FileReader(datasetPath))) {
-            String line;
-            int opsInTx = 0;
-
-            while ((line = reader.readLine()) != null) {
-                line = line.trim();
-                if (line.startsWith("%")) continue; // Skip comments
-
-                String[] parts = line.split("\\s+");
-                if (parts.length < 2) continue;
-
-                long srcId, dstId;
-                try {
-                    srcId = Long.parseLong(parts[0]);
-                    dstId = Long.parseLong(parts[1]);
-                } catch (NumberFormatException e) {
-                    // Skip header lines
-                    continue;
-                }
-
-                // Use in-memory map to avoid repeated findNode queries
-                Object srcInternalId = nodeIdsMap.get(srcId);
-                if (srcInternalId == null) {
-                    Vertex srcVertex = g.addV(NODE_LABEL).property("id", srcId).next();
-                    srcInternalId = srcVertex.id();
-                    nodeIdsMap.put(srcId, srcInternalId);
-                }
-
-                Object dstInternalId = nodeIdsMap.get(dstId);
-                if (dstInternalId == null) {
-                    Vertex dstVertex = g.addV(NODE_LABEL).property("id", dstId).next();
-                    dstInternalId = dstVertex.id();
-                    nodeIdsMap.put(dstId, dstInternalId);
-                }
-
-                // Create edge
-                g.V(srcInternalId).addE("MyEdge").to(__.V(dstInternalId)).iterate();
-                edgeCount++;
-                opsInTx++;
-
-                if (opsInTx >= BATCH_SIZE) {
-                    g.tx().commit();
-                    opsInTx = 0;
-                }
-            }
-            g.tx().commit();
-        }
-
-        long endTime = System.nanoTime();
-        double durationSeconds = (endTime - startTime) / 1_000_000_000.0;
-
-        // Query database for vertex count
-        long nodeCount = g.V().hasLabel(NODE_LABEL).count().next();
-
-        progressCallback.sendLogMessage("Loaded " + nodeCount + " vertices and " + edgeCount + " edges", "INFO");
-
-        Map<String, Object> result = new HashMap<>();
-        result.put("nodes", nodeCount);
-        result.put("edges", edgeCount);
-        result.put("durationSeconds", durationSeconds);
+        JanusGraphGraphLoader loader = new JanusGraphGraphLoader(g, progressCallback, false);
+        Map<String, Object> result = loader.load(datasetPath);
+        nodeIdsMap = loader.getNodeIdsMap();
         return result;
     }
 
-    /**
-     * Functional interface for transactional operations.
-     */
+    // --- Transactional execution helpers (protected for subclass access) ---
+
     @FunctionalInterface
-    private interface TransactionalOperation<T> {
+    protected interface TransactionalOperation<T> {
         void execute(T item) throws Exception;
     }
 
-    /**
-     * Functional interface for transactional operations without parameters.
-     */
     @FunctionalInterface
-    private interface TransactionalOperationNoParam {
+    protected interface TransactionalOperationNoParam {
         void execute() throws Exception;
     }
 
-    /**
-     * Execute a list of operations within transactions, measuring latency for each batch.
-     * @param items List of items to process
-     * @param operation The operation to execute for each item
-     * @param batchSize Number of operations per transaction (1 = no batching)
-     * @return List of per-operation latencies in microseconds
-     */
-    private <T> List<Double> transactionalExecute(List<T> items, TransactionalOperation<T> operation, int batchSize) {
+    protected <T> List<Double> transactionalExecute(List<T> items, TransactionalOperation<T> operation, int batchSize) {
         List<Double> latencies = new ArrayList<>();
-
         for (int i = 0; i < items.size(); i += batchSize) {
             int end = Math.min(i + batchSize, items.size());
             List<T> batch = items.subList(i, end);
-
             long startNs = System.nanoTime();
             try {
-                for (T item : batch) {
-                    operation.execute(item);
-                }
+                for (T item : batch) { operation.execute(item); }
                 g.tx().commit();
             } catch (Exception e) {
                 errorCount += batch.size();
-                try {
-                    g.tx().rollback();
-                } catch (Exception ex) {
-                    // Ignore rollback errors
-                }
+                try { g.tx().rollback(); } catch (Exception ex) { /* ignore */ }
             }
             long endNs = System.nanoTime();
-            // Calculate per-operation latency by dividing batch latency by actual batch size
-            double batchLatencyUs = (endNs - startNs) / 1000.0;
-            latencies.add(batchLatencyUs / batch.size());
+            latencies.add((endNs - startNs) / 1000.0 / batch.size());
         }
-
         return latencies;
     }
 
-    /**
-     * Execute operations without parameters within transactions.
-     * @param count Number of operations to execute
-     * @param operation The operation to execute
-     * @param batchSize Number of operations per transaction (1 = no batching)
-     * @return List of per-operation latencies in microseconds
-     */
-    private List<Double> transactionalExecute(int count, TransactionalOperationNoParam operation, int batchSize) {
+    protected List<Double> transactionalExecute(int count, TransactionalOperationNoParam operation, int batchSize) {
         List<Double> latencies = new ArrayList<>();
-
         for (int i = 0; i < count; i += batchSize) {
-            int end = Math.min(i + batchSize, count);
-            int batchCount = end - i;
-
+            int batchCount = Math.min(i + batchSize, count) - i;
             long startNs = System.nanoTime();
             try {
-                for (int j = 0; j < batchCount; j++) {
-                    operation.execute();
-                }
+                for (int j = 0; j < batchCount; j++) { operation.execute(); }
                 g.tx().commit();
             } catch (Exception e) {
                 errorCount += batchCount;
-                try {
-                    g.tx().rollback();
-                } catch (Exception ex) {
-                    // Ignore rollback errors
-                }
+                try { g.tx().rollback(); } catch (Exception ex) { /* ignore */ }
             }
             long endNs = System.nanoTime();
-            // Calculate per-operation latency by dividing batch latency by actual batch size
-            double batchLatencyUs = (endNs - startNs) / 1000.0;
-            latencies.add(batchLatencyUs / batchCount);
+            latencies.add((endNs - startNs) / 1000.0 / batchCount);
         }
-
         return latencies;
     }
+
+    // --- Structural operations ---
 
     @Override
     public List<Double> addVertex(int count, int batchSize) {
         return transactionalExecute(count, () -> {
             g.addV(NODE_LABEL).next();
-        }, batchSize);
-    }
-
-    @Override
-    public List<Double> updateVertexProperty(List<UpdateVertexPropertyParams.VertexUpdate> updates, int batchSize) {
-        return transactionalExecute(updates, update -> {
-            Vertex v = g.V(update.getSystemId()).tryNext().orElse(null);
-            if (v != null) {
-                for (Map.Entry<String, Object> entry : update.getProperties().entrySet()) {
-                    v.property(entry.getKey(), entry.getValue());
-                }
-            }
         }, batchSize);
     }
 
@@ -305,25 +167,11 @@ public class JanusGraphBenchmarkExecutor implements BenchmarkExecutor {
     }
 
     @Override
-    public List<Double> updateEdgeProperty(String label, List<UpdateEdgePropertyParams.EdgeUpdate> updates, int batchSize) {
-        return transactionalExecute(updates, update -> {
-            g.V(update.getSrcSystemId()).outE(label)
-                .where(__.inV().hasId(update.getDstSystemId()))
-                .forEachRemaining(edge -> {
-                    for (Map.Entry<String, Object> entry : update.getProperties().entrySet()) {
-                        edge.property(entry.getKey(), entry.getValue());
-                    }
-                });
-        }, batchSize);
-    }
-
-    @Override
     public List<Double> removeEdge(String label, List<RemoveEdgeParams.EdgePair> pairs, int batchSize) {
         return transactionalExecute(pairs, pair -> {
             g.V(pair.getSrcSystemId()).outE(label)
                 .where(__.inV().hasId(pair.getDstSystemId()))
-                .drop()
-                .iterate();
+                .drop().iterate();
         }, batchSize);
     }
 
@@ -331,35 +179,19 @@ public class JanusGraphBenchmarkExecutor implements BenchmarkExecutor {
     public List<Double> getNbrs(String direction, List<Object> systemIds, int batchSize) {
         return transactionalExecute(systemIds, systemId -> {
             if ("OUT".equals(direction)) {
-                g.V(systemId).out().values("id").forEachRemaining(blackhole::consume);
+                g.V(systemId).out().forEachRemaining(blackhole::consume);
             } else if ("IN".equals(direction)) {
-                g.V(systemId).in().values("id").forEachRemaining(blackhole::consume);
-            } else { // BOTH
-                g.V(systemId).both().values("id").forEachRemaining(blackhole::consume);
+                g.V(systemId).in().forEachRemaining(blackhole::consume);
+            } else {
+                g.V(systemId).both().forEachRemaining(blackhole::consume);
             }
         }, batchSize);
     }
 
-    @Override
-    public List<Double> getVertexByProperty(List<GetVertexByPropertyParams.PropertyQuery> queries, int batchSize) {
-        return transactionalExecute(queries, query -> {
-            g.V().hasLabel(NODE_LABEL)
-                .has(query.getKey(), query.getValue())
-                .forEachRemaining(blackhole::consume);
-        }, batchSize);
-    }
+    public int getErrorCount() { return errorCount; }
+
+    public void resetErrorCount() { errorCount = 0; }
 
     @Override
-    public List<Double> getEdgeByProperty(String label, List<GetEdgeByPropertyParams.PropertyQuery> queries, int batchSize) {
-        return transactionalExecute(queries, query -> {
-            g.E().hasLabel(label)
-                .has(query.getKey(), query.getValue())
-                .forEachRemaining(blackhole::consume);
-        }, batchSize);
-    }
-
-    @Override
-    public Object getSystemId(Long originId) {
-        return nodeIdsMap.get(originId);
-    }
+    public Object getSystemId(Long originId) { return nodeIdsMap.get(originId); }
 }

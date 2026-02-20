@@ -56,8 +56,11 @@ public class WorkloadDispatcher {
         Map<String, Object> metadata = new HashMap<>();
         metadata.put("database", executor.getDatabaseName());
 
-        String fileName = new File(datasetPath).getName();
-        String datasetName = fileName.contains(".") ? fileName.substring(0, fileName.lastIndexOf('.')) : fileName;
+        // datasetPath may be a directory (CSV mode) or file; use directory/file name as dataset name
+        String datasetName = new File(datasetPath).getName();
+        if (datasetName.contains(".")) {
+            datasetName = datasetName.substring(0, datasetName.lastIndexOf('.'));
+        }
         metadata.put("dataset", datasetName);
         metadata.put("datasetPath", datasetPath);
         metadata.put("timestamp", Instant.now().toString());
@@ -197,6 +200,18 @@ public class WorkloadDispatcher {
     }
 
     /**
+     * Get the executor as a PropertyBenchmarkExecutor, or throw if not supported.
+     */
+    private PropertyBenchmarkExecutor requirePropertyExecutor() {
+        if (!(executor instanceof PropertyBenchmarkExecutor)) {
+            throw new RuntimeException(
+                "Property operations require a PropertyBenchmarkExecutor, but got: "
+                + executor.getClass().getName());
+        }
+        return (PropertyBenchmarkExecutor) executor;
+    }
+
+    /**
      * Execute a task with specified batch size.
      */
     private void executeTask(String taskType, Map<String, Object> parameters, Map<String, Object> result, int batchSize) {
@@ -213,14 +228,6 @@ public class WorkloadDispatcher {
                 latencies = executor.addVertex(count, batchSize);
                 break;
 
-            case "UPDATE_VERTEX_PROPERTY":
-                List<UpdateVertexPropertyParams.VertexUpdate> vertexUpdates =
-                    parseVertexUpdates((List<Map<String, Object>>) parameters.get("updates"));
-                originalOpsCount = ((List<?>) parameters.get("updates")).size();
-                validOpsCount = vertexUpdates.size();
-                latencies = executor.updateVertexProperty(vertexUpdates, batchSize);
-                break;
-
             case "REMOVE_VERTEX":
                 List<Object> removeVertexSystemIds = parseIdList(parameters.get("ids"));
                 originalOpsCount = ((List<?>) parameters.get("ids")).size();
@@ -235,15 +242,6 @@ public class WorkloadDispatcher {
                 originalOpsCount = ((List<?>) parameters.get("pairs")).size();
                 validOpsCount = addEdgePairs.size();
                 latencies = executor.addEdge(addEdgeLabel, addEdgePairs, batchSize);
-                break;
-
-            case "UPDATE_EDGE_PROPERTY":
-                String updateEdgeLabel = (String) parameters.get("label");
-                List<UpdateEdgePropertyParams.EdgeUpdate> edgeUpdates =
-                    parseEdgeUpdates((List<Map<String, Object>>) parameters.get("updates"));
-                originalOpsCount = ((List<?>) parameters.get("updates")).size();
-                validOpsCount = edgeUpdates.size();
-                latencies = executor.updateEdgeProperty(updateEdgeLabel, edgeUpdates, batchSize);
                 break;
 
             case "REMOVE_EDGE":
@@ -263,22 +261,47 @@ public class WorkloadDispatcher {
                 latencies = executor.getNbrs(direction, nbrsSystemIds, batchSize);
                 break;
 
-            case "GET_VERTEX_BY_PROPERTY":
+            case "UPDATE_VERTEX_PROPERTY": {
+                PropertyBenchmarkExecutor propExec = requirePropertyExecutor();
+                List<UpdateVertexPropertyParams.VertexUpdate> vertexUpdates =
+                    parseVertexUpdates((List<Map<String, Object>>) parameters.get("updates"));
+                originalOpsCount = ((List<?>) parameters.get("updates")).size();
+                validOpsCount = vertexUpdates.size();
+                latencies = propExec.updateVertexProperty(vertexUpdates, batchSize);
+                break;
+            }
+
+            case "UPDATE_EDGE_PROPERTY": {
+                PropertyBenchmarkExecutor propExec = requirePropertyExecutor();
+                String updateEdgeLabel = (String) parameters.get("label");
+                List<UpdateEdgePropertyParams.EdgeUpdate> edgeUpdates =
+                    parseEdgeUpdates((List<Map<String, Object>>) parameters.get("updates"));
+                originalOpsCount = ((List<?>) parameters.get("updates")).size();
+                validOpsCount = edgeUpdates.size();
+                latencies = propExec.updateEdgeProperty(updateEdgeLabel, edgeUpdates, batchSize);
+                break;
+            }
+
+            case "GET_VERTEX_BY_PROPERTY": {
+                PropertyBenchmarkExecutor propExec = requirePropertyExecutor();
                 List<GetVertexByPropertyParams.PropertyQuery> vertexQueries =
                     parseVertexPropertyQueries((List<Map<String, Object>>) parameters.get("queries"));
                 originalOpsCount = ((List<?>) parameters.get("queries")).size();
                 validOpsCount = vertexQueries.size();
-                latencies = executor.getVertexByProperty(vertexQueries, batchSize);
+                latencies = propExec.getVertexByProperty(vertexQueries, batchSize);
                 break;
+            }
 
-            case "GET_EDGE_BY_PROPERTY":
+            case "GET_EDGE_BY_PROPERTY": {
+                PropertyBenchmarkExecutor propExec = requirePropertyExecutor();
                 String getEdgeLabel = (String) parameters.get("label");
                 List<GetEdgeByPropertyParams.PropertyQuery> edgeQueries =
                     parseEdgePropertyQueries((List<Map<String, Object>>) parameters.get("queries"));
                 originalOpsCount = ((List<?>) parameters.get("queries")).size();
                 validOpsCount = edgeQueries.size();
-                latencies = executor.getEdgeByProperty(getEdgeLabel, edgeQueries, batchSize);
+                latencies = propExec.getEdgeByProperty(getEdgeLabel, edgeQueries, batchSize);
                 break;
+            }
 
             default:
                 throw new RuntimeException("Unknown task type: " + taskType);

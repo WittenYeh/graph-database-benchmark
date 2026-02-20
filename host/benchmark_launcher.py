@@ -62,8 +62,10 @@ class BenchmarkLauncher:
 
         db_config = self.database_config[self.database_name]
 
-        # Get workload name from config
+        # Get workload name and mode from config
         workload_name = self.workload_config.get('name', 'unnamed_workload')
+        mode = self.workload_config.get('mode', 'structural')
+        print(f"📋 Workload: {workload_name} (mode: {mode})")
 
         # Start progress server
         progress_server = ProgressServer(port=8888)
@@ -103,7 +105,8 @@ class BenchmarkLauncher:
                     self.database_name,
                     dataset_path,
                     compiled_dir,
-                    callback_url
+                    callback_url,
+                    mode=mode
                 )
 
                 try:

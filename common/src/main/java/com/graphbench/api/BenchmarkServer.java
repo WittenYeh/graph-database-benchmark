@@ -28,20 +28,32 @@ public class BenchmarkServer {
     private static final Map<String, DatabaseConfig> DATABASE_REGISTRY = new HashMap<>();
 
     static {
-        // Register Neo4j
+        // Structural executors
         DATABASE_REGISTRY.put("neo4j", new DatabaseConfig(
             "Neo4j",
             "/tmp/neo4j-benchmark-db",
             50080,
             "com.graphbench.neo4j.Neo4jBenchmarkExecutor"
         ));
-
-        // Register JanusGraph
         DATABASE_REGISTRY.put("janusgraph", new DatabaseConfig(
             "JanusGraph",
             "/tmp/janusgraph-benchmark-db",
             50081,
             "com.graphbench.janusgraph.JanusGraphBenchmarkExecutor"
+        ));
+
+        // Property executors
+        DATABASE_REGISTRY.put("neo4j-property", new DatabaseConfig(
+            "Neo4j (Property)",
+            "/tmp/neo4j-benchmark-db",
+            50080,
+            "com.graphbench.neo4j.Neo4jPropertyBenchmarkExecutor"
+        ));
+        DATABASE_REGISTRY.put("janusgraph-property", new DatabaseConfig(
+            "JanusGraph (Property)",
+            "/tmp/janusgraph-benchmark-db",
+            50081,
+            "com.graphbench.janusgraph.JanusGraphPropertyBenchmarkExecutor"
         ));
     }
 

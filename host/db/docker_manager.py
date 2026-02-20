@@ -46,7 +46,8 @@ class DockerManager:
         database_name: str,
         dataset_path: Path,
         compiled_workload_dir: Path,
-        progress_callback_url: str = None
+        progress_callback_url: str = None,
+        mode: str = 'structural'
     ):
         """Start Docker container with mounted volumes"""
         db_config = self.database_config[database_name]
@@ -65,13 +66,16 @@ class DockerManager:
         # Get project root directory (parent of host directory)
         project_root = Path(__file__).parent.parent.parent.absolute()
 
+        # Determine DB_TYPE based on mode
+        db_type = database_name if mode == 'structural' else f"{database_name}-property"
+
         # Build environment variables
         env_vars = {
             'DATASET_FILE': f'/workspace/{dataset_path.relative_to(project_root)}',
             'WORKLOAD_DIR': '/data/workloads',
             'HEAP_SIZE': db_config['config'].get('heap_size', '4G'),
-            'API_PORT': str(api_port),  # Pass API port as environment variable
-            'DB_TYPE': database_name  # Pass database type for BenchmarkServer
+            'API_PORT': str(api_port),
+            'DB_TYPE': db_type
         }
 
         # Add progress callback URL if provided

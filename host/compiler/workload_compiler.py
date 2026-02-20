@@ -1,10 +1,15 @@
 """
 WorkloadCompiler - Optimized for "Reset/Restore" Benchmark Model
 """
+import csv
 import json
 import random
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
+
+STRUCTURAL_TASKS = {'load_graph', 'add_vertex', 'remove_vertex', 'add_edge', 'remove_edge', 'get_nbrs'}
+PROPERTY_TASKS = {'load_graph', 'update_vertex_property', 'update_edge_property',
+                  'get_vertex_by_property', 'get_edge_by_property'}
 
 class WorkloadCompiler:
     def __init__(self, database_config: Dict[str, Any]):
@@ -19,6 +24,14 @@ class WorkloadCompiler:
         # Core boundary: The maximum ID in the initial dataset
         self.max_dataset_id = 0
 
+        # Property metadata from CSV headers
+        self.node_property_keys: List[str] = []   # e.g. ["name", "age"]
+        self.edge_property_keys: List[str] = []   # e.g. ["weight", "type"]
+
+        # Sampled property values: node_id -> {key: value}, edge (src,dst) -> {key: value}
+        self.sampled_node_props: Dict[int, Dict[str, str]] = {}
+        self.sampled_edge_props: Dict[Tuple[int, int], Dict[str, str]] = {}
+
     def compile_workload(
         self,
         workload_config: Dict[str, Any],
@@ -30,7 +43,18 @@ class WorkloadCompiler:
         if seed is not None:
             random.seed(seed)
 
-        # 1. Scan the initial dataset (Benchmark Baseline)
+        # Validate mode
+        mode = workload_config.get('mode', 'structural')
+        valid_tasks = STRUCTURAL_TASKS if mode == 'structural' else PROPERTY_TASKS
+        tasks = workload_config.get('tasks', [])
+        for task in tasks:
+            if task['name'] not in valid_tasks:
+                raise ValueError(
+                    f"Task '{task['name']}' is not valid for mode '{mode}'. "
+                    f"Valid tasks: {valid_tasks}"
+                )
+
+        # Scan the initial dataset (Benchmark Baseline)
         if dataset_path:
             self._scan_dataset(dataset_path)
 
@@ -42,13 +66,8 @@ class WorkloadCompiler:
             shutil.rmtree(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        tasks = workload_config.get('tasks', [])
         for idx, task in enumerate(tasks):
             task_name = task['name']
-
-            # ★ Key modification: No need to reset generator state before each task
-            # because the graph is restored. However, we must ensure all operations
-            # are based on self.sampled_nodes (initial data).
             workload_data = self._compile_task(task)
 
             output_file = output_dir / f"{idx:02d}_{task_name}.json"
@@ -58,21 +77,54 @@ class WorkloadCompiler:
         return output_dir
 
     def _scan_dataset(self, dataset_path: Path):
-        """Scan and sample the initial dataset"""
-        print(f"Scanning baseline dataset: {dataset_path}...")
-        edge_count = 0
+        """Scan dataset directory containing nodes.csv and edges.csv"""
+        dataset_dir = Path(dataset_path)
 
-        with open(dataset_path, 'r') as f:
-            for line in f:
-                if not line or line.startswith(('%', '#')): continue
-                parts = line.split()
-                if len(parts) < 2: continue
+        # Scan nodes.csv
+        nodes_file = dataset_dir / 'nodes.csv'
+        print(f"Scanning nodes: {nodes_file}...")
+        node_count = 0
+        with open(nodes_file, 'r') as f:
+            reader = csv.DictReader(f)
+            # Discover property columns (everything except node_id)
+            all_cols = reader.fieldnames or []
+            self.node_property_keys = [c for c in all_cols if c != 'node_id']
 
+            for row in reader:
                 try:
-                    src, dst = int(parts[0]), int(parts[1])
+                    node_id = int(row['node_id'])
+                    self.max_dataset_id = max(self.max_dataset_id, node_id)
 
-                    # Track boundary for AddVertex
-                    self.max_dataset_id = max(self.max_dataset_id, src, dst)
+                    # Reservoir sampling for node IDs
+                    if len(self.sampled_nodes) < self.SAMPLE_SIZE:
+                        self.sampled_nodes.append(node_id)
+                    else:
+                        r = random.randint(0, node_count)
+                        if r < self.SAMPLE_SIZE:
+                            self.sampled_nodes[r] = node_id
+
+                    # Store property values for sampled nodes (if properties exist)
+                    if self.node_property_keys:
+                        props = {k: row[k] for k in self.node_property_keys if row.get(k)}
+                        if props:
+                            self.sampled_node_props[node_id] = props
+
+                    node_count += 1
+                except (ValueError, KeyError):
+                    continue
+
+        # Scan edges.csv
+        edges_file = dataset_dir / 'edges.csv'
+        print(f"Scanning edges: {edges_file}...")
+        edge_count = 0
+        with open(edges_file, 'r') as f:
+            reader = csv.DictReader(f)
+            all_cols = reader.fieldnames or []
+            self.edge_property_keys = [c for c in all_cols if c not in ('src', 'dst')]
+
+            for row in reader:
+                try:
+                    src, dst = int(row['src']), int(row['dst'])
 
                     # Reservoir sampling for edges
                     if len(self.sampled_edges) < self.SAMPLE_SIZE:
@@ -82,19 +134,21 @@ class WorkloadCompiler:
                         if r < self.SAMPLE_SIZE:
                             self.sampled_edges[r] = (src, dst)
 
-                    # Reservoir sampling for nodes
-                    if len(self.sampled_nodes) < self.SAMPLE_SIZE:
-                        self.sampled_nodes.append(src)
-                        # Could also sample dst, depending on distribution
-                    else:
-                        r = random.randint(0, edge_count)
-                        if r < self.SAMPLE_SIZE:
-                            self.sampled_nodes[r] = src
+                    # Store property values for sampled edges (if properties exist)
+                    if self.edge_property_keys:
+                        props = {k: row[k] for k in self.edge_property_keys if row.get(k)}
+                        if props:
+                            self.sampled_edge_props[(src, dst)] = props
 
                     edge_count += 1
-                except ValueError:
+                except (ValueError, KeyError):
                     continue
-        print(f"Baseline Scanned. Max ID: {self.max_dataset_id}")
+
+        print(f"Baseline Scanned. Nodes: {node_count}, Edges: {edge_count}, Max ID: {self.max_dataset_id}")
+        if self.node_property_keys:
+            print(f"  Node properties: {self.node_property_keys}")
+        if self.edge_property_keys:
+            print(f"  Edge properties: {self.edge_property_keys}")
 
     def _compile_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
         task_name = task['name']
@@ -127,11 +181,6 @@ class WorkloadCompiler:
     # --- Logic implementation for Restore Mechanism ---
 
     def _compile_add_vertex(self, ops: int) -> Dict[str, Any]:
-        """
-        Logic:
-        Since the graph is restored, we can safely add the same count of vertices every time.
-        The database will assign internal IDs automatically.
-        """
         return {
             "task_type": "ADD_VERTEX",
             "ops_count": ops,
@@ -139,14 +188,6 @@ class WorkloadCompiler:
         }
 
     def _compile_remove_vertex(self, ops: int) -> Dict[str, Any]:
-        """
-        Logic:
-        Must select nodes from self.sampled_nodes (initial data).
-        If we select a randomly generated ID, that node won't exist because the graph was restored,
-        making the delete operation invalid (Benchmark failure).
-        Sample without replacement to ensure each vertex is only removed once.
-        """
-        # Deduplicate sampled_nodes first, then sample without replacement
         unique_nodes = list(set(self.sampled_nodes))
         available_nodes = len(unique_nodes)
 
@@ -160,16 +201,11 @@ class WorkloadCompiler:
             "ops_count": ops,
             "parameters": {
                 "ids": ids,
-                "detach": True # Must detach, because initial nodes definitely have edges
+                "detach": True
             }
         }
 
     def _compile_add_edge(self, ops: int) -> Dict[str, Any]:
-        """
-        Logic:
-        Both endpoints must be from self.sampled_nodes (initial data).
-        Cannot connect to a non-existent ID (e.g., nodes added by other tasks that were wiped).
-        """
         pairs = []
         for _ in range(ops):
             pairs.append({
@@ -179,16 +215,10 @@ class WorkloadCompiler:
         return {
             "task_type": "ADD_EDGE",
             "ops_count": ops,
-            "parameters": {"label": "knows", "pairs": pairs}
+            "parameters": {"label": "MyEdge", "pairs": pairs}
         }
 
     def _compile_remove_edge(self, ops: int) -> Dict[str, Any]:
-        """
-        Logic:
-        Must select from self.sampled_edges (initial edges).
-        Sample without replacement to ensure each edge is only removed once.
-        """
-        # Sample without replacement to avoid duplicates
         available_edges = len(self.sampled_edges)
         if ops > available_edges:
             print(f"Warning: Requested {ops} remove_edge ops, but only {available_edges} sampled edges available. Using {available_edges}.")
@@ -200,34 +230,38 @@ class WorkloadCompiler:
         return {
             "task_type": "REMOVE_EDGE",
             "ops_count": ops,
-            "parameters": {"label": "knows", "pairs": pairs}
+            "parameters": {"label": "MyEdge", "pairs": pairs}
         }
 
     def _compile_property_task(self, ops: int, is_edge: bool, is_write: bool) -> Dict[str, Any]:
         """
-        Logic:
-        Must also target initial data (Existing Data).
-        Update: Update properties of initial data.
-        Get: Query properties of initial data.
+        For Update: target existing nodes/edges, modify existing property keys with new values.
+        For Get: query using existing key-value pairs from the dataset.
         """
         items = []
         for _ in range(ops):
             if is_edge:
                 src, dst = self._sample_existing_edge()
-                props = self._generate_deterministic_props(src)
+                existing_props = self.sampled_edge_props.get((src, dst), {})
+                prop_keys = self.edge_property_keys
                 if is_write:
-                    items.append({"src": src, "dst": dst, "properties": props})
+                    # Update: use existing keys, generate new values
+                    new_props = self._generate_new_values(prop_keys, src)
+                    items.append({"src": src, "dst": dst, "properties": new_props})
                 else:
-                    key = random.choice(list(props.keys()))
-                    items.append({"key": key, "value": props[key]})
+                    # Get: use an actual key-value pair from the dataset
+                    kv = self._pick_existing_kv(existing_props, prop_keys, src)
+                    items.append(kv)
             else:
                 node_id = self._sample_existing_node()
-                props = self._generate_deterministic_props(node_id)
+                existing_props = self.sampled_node_props.get(node_id, {})
+                prop_keys = self.node_property_keys
                 if is_write:
-                    items.append({"id": node_id, "properties": props})
+                    new_props = self._generate_new_values(prop_keys, node_id)
+                    items.append({"id": node_id, "properties": new_props})
                 else:
-                    key = random.choice(list(props.keys()))
-                    items.append({"key": key, "value": props[key]})
+                    kv = self._pick_existing_kv(existing_props, prop_keys, node_id)
+                    items.append(kv)
 
         if is_write:
             task_type = f"UPDATE_{'EDGE' if is_edge else 'VERTEX'}_PROPERTY"
@@ -241,11 +275,10 @@ class WorkloadCompiler:
             "parameters": {param_key: items}
         }
         if is_edge:
-            res["parameters"]["label"] = "knows"
+            res["parameters"]["label"] = "MyEdge"
         return res
 
     def _compile_get_nbrs(self, ops: int, direction: str) -> Dict[str, Any]:
-        """Query neighbors of initial nodes"""
         ids = [self._sample_existing_node() for _ in range(ops)]
         return {
             "task_type": "GET_NBRS",
@@ -256,23 +289,30 @@ class WorkloadCompiler:
     # --- Helpers ---
 
     def _sample_existing_node(self) -> int:
-        """Return only nodes from the initial dataset"""
         if not self.sampled_nodes: return 1
         return random.choice(self.sampled_nodes)
 
     def _sample_existing_edge(self) -> Tuple[int, int]:
-        """Return only edges from the initial dataset"""
         if not self.sampled_edges: return (1, 2)
         return random.choice(self.sampled_edges)
 
-    def _generate_deterministic_props(self, seed_id: int) -> Dict[str, Any]:
-        """
-        ★ Core Logic: Generate deterministic properties based on ID.
-        Even if Get and Update tasks are unrelated, as long as they target the same ID,
-        the generated properties are consistent.
-        """
-        return {
-            "weight": round((seed_id % 100) / 100.0, 2),
-            "age": seed_id % 90 + 10,
-            "flag": (seed_id % 2 == 0)
-        }
+    def _generate_new_values(self, prop_keys: List[str], seed_id: int) -> Dict[str, Any]:
+        """Generate new property values for existing keys (for Update operations)."""
+        if not prop_keys:
+            return {"_bench_prop": f"val_{seed_id}"}
+        props = {}
+        for key in prop_keys:
+            props[key] = f"updated_{seed_id}_{key}"
+        return props
+
+    def _pick_existing_kv(self, existing_props: Dict[str, str], prop_keys: List[str], seed_id: int) -> Dict[str, Any]:
+        """Pick an existing key-value pair for Get operations."""
+        # If we have actual property data for this entity, use it
+        if existing_props:
+            key = random.choice(list(existing_props.keys()))
+            return {"key": key, "value": existing_props[key]}
+        # Fallback: use a known key with a generated value
+        if prop_keys:
+            key = random.choice(prop_keys)
+            return {"key": key, "value": f"updated_{seed_id}_{key}"}
+        return {"key": "_bench_prop", "value": f"val_{seed_id}"}

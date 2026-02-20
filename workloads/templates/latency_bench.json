@@ -1,5 +1,6 @@
 {
   "name": "latency_bench",
+  "mode": "structural",
   "server_config": {
     "threads": 8
   },

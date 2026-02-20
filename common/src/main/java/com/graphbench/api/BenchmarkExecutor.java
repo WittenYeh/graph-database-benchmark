@@ -5,8 +5,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Interface for benchmark executors.
- * All operations are executed serially to measure per-operation latency.
+ * Interface for structural benchmark executors.
+ * Handles graph structural operations: addVertex, removeVertex, addEdge, removeEdge, getNbrs.
+ * Property operations (updateVertexProperty, etc.) are in PropertyBenchmarkExecutor.
  */
 public interface BenchmarkExecutor {
 
@@ -21,8 +22,8 @@ public interface BenchmarkExecutor {
     void shutdown() throws Exception;
 
     /**
-     * Load graph from dataset file.
-     * @param datasetPath Path to the dataset file
+     * Load graph from dataset directory containing nodes.csv and edges.csv.
+     * @param datasetPath Path to the dataset directory
      * @return Map containing metadata (nodes count, edges count, duration)
      */
     Map<String, Object> loadGraph(String datasetPath) throws Exception;
@@ -34,14 +35,6 @@ public interface BenchmarkExecutor {
      * @return List of latencies in microseconds for each batch
      */
     List<Double> addVertex(int count, int batchSize);
-
-    /**
-     * Update vertex properties using native API with specified batch size.
-     * @param updates List of vertex updates (system id + properties)
-     * @param batchSize Number of operations per transaction (1 = no batching)
-     * @return List of latencies in microseconds for each batch
-     */
-    List<Double> updateVertexProperty(List<UpdateVertexPropertyParams.VertexUpdate> updates, int batchSize);
 
     /**
      * Remove vertices using native API with specified batch size.
@@ -59,15 +52,6 @@ public interface BenchmarkExecutor {
      * @return List of latencies in microseconds for each batch
      */
     List<Double> addEdge(String label, List<AddEdgeParams.EdgePair> pairs, int batchSize);
-
-    /**
-     * Update edge properties using native API with specified batch size.
-     * @param label Edge label
-     * @param updates List of edge updates (src, dst, properties)
-     * @param batchSize Number of operations per transaction (1 = no batching)
-     * @return List of latencies in microseconds for each batch
-     */
-    List<Double> updateEdgeProperty(String label, List<UpdateEdgePropertyParams.EdgeUpdate> updates, int batchSize);
 
     /**
      * Remove edges using native API with specified batch size.
@@ -88,44 +72,14 @@ public interface BenchmarkExecutor {
     List<Double> getNbrs(String direction, List<Object> systemIds, int batchSize);
 
     /**
-     * Get vertices by property using native API with specified batch size.
-     * @param queries List of property queries (key, value)
-     * @param batchSize Number of operations per transaction (1 = no batching)
-     * @return List of latencies in microseconds for each batch
-     */
-    List<Double> getVertexByProperty(List<GetVertexByPropertyParams.PropertyQuery> queries, int batchSize);
-
-    /**
-     * Get edges by property using native API with specified batch size.
-     * @param label Edge label
-     * @param queries List of property queries (key, value)
-     * @param batchSize Number of operations per transaction (1 = no batching)
-     * @return List of latencies in microseconds for each batch
-     */
-    List<Double> getEdgeByProperty(String label, List<GetEdgeByPropertyParams.PropertyQuery> queries, int batchSize);
-
-    /**
      * Add vertices using native API (default batch size = 1).
-     * @param count Number of vertices to add
-     * @return List of latencies in microseconds for each operation
      */
     default List<Double> addVertex(int count) {
         return addVertex(count, 1);
     }
 
     /**
-     * Update vertex properties using native API (default batch size = 1).
-     * @param updates List of vertex updates (system id + properties)
-     * @return List of latencies in microseconds for each operation
-     */
-    default List<Double> updateVertexProperty(List<UpdateVertexPropertyParams.VertexUpdate> updates) {
-        return updateVertexProperty(updates, 1);
-    }
-
-    /**
      * Remove vertices using native API (default batch size = 1).
-     * @param systemIds List of system-specific vertex IDs to remove
-     * @return List of latencies in microseconds for each operation
      */
     default List<Double> removeVertex(List<Object> systemIds) {
         return removeVertex(systemIds, 1);
@@ -133,29 +87,13 @@ public interface BenchmarkExecutor {
 
     /**
      * Add edges using native API (default batch size = 1).
-     * @param label Edge label
-     * @param pairs List of (src, dst) pairs
-     * @return List of latencies in microseconds for each operation
      */
     default List<Double> addEdge(String label, List<AddEdgeParams.EdgePair> pairs) {
         return addEdge(label, pairs, 1);
     }
 
     /**
-     * Update edge properties using native API (default batch size = 1).
-     * @param label Edge label
-     * @param updates List of edge updates (src, dst, properties)
-     * @return List of latencies in microseconds for each operation
-     */
-    default List<Double> updateEdgeProperty(String label, List<UpdateEdgePropertyParams.EdgeUpdate> updates) {
-        return updateEdgeProperty(label, updates, 1);
-    }
-
-    /**
      * Remove edges using native API (default batch size = 1).
-     * @param label Edge label
-     * @param pairs List of (src, dst) pairs
-     * @return List of latencies in microseconds for each operation
      */
     default List<Double> removeEdge(String label, List<RemoveEdgeParams.EdgePair> pairs) {
         return removeEdge(label, pairs, 1);
@@ -163,31 +101,9 @@ public interface BenchmarkExecutor {
 
     /**
      * Get neighbors using native API (default batch size = 1).
-     * @param direction Direction: "OUT", "IN", or "BOTH"
-     * @param systemIds List of system-specific vertex IDs
-     * @return List of latencies in microseconds for each operation
      */
     default List<Double> getNbrs(String direction, List<Object> systemIds) {
         return getNbrs(direction, systemIds, 1);
-    }
-
-    /**
-     * Get vertices by property using native API (default batch size = 1).
-     * @param queries List of property queries (key, value)
-     * @return List of latencies in microseconds for each operation
-     */
-    default List<Double> getVertexByProperty(List<GetVertexByPropertyParams.PropertyQuery> queries) {
-        return getVertexByProperty(queries, 1);
-    }
-
-    /**
-     * Get edges by property using native API (default batch size = 1).
-     * @param label Edge label
-     * @param queries List of property queries (key, value)
-     * @return List of latencies in microseconds for each operation
-     */
-    default List<Double> getEdgeByProperty(String label, List<GetEdgeByPropertyParams.PropertyQuery> queries) {
-        return getEdgeByProperty(label, queries, 1);
     }
 
     /**

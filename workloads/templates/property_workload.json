@@ -1,0 +1,14 @@
+{
+  "name": "property_workload",
+  "mode": "property",
+  "server_config": {
+    "threads": 8
+  },
+  "tasks": [
+    { "name": "load_graph" },
+    { "name": "update_vertex_property", "ops": 5000, "batch_sizes": [1, 4, 16, 64, 256, 1024] },
+    { "name": "update_edge_property", "ops": 5000, "batch_sizes": [1, 4, 16, 64, 256, 1024] },
+    { "name": "get_vertex_by_property", "ops": 5000, "batch_sizes": [1, 4, 16, 64, 256, 1024] },
+    { "name": "get_edge_by_property", "ops": 5000, "batch_sizes": [1, 4, 16, 64, 256, 1024] }
+  ]
+}

@@ -1,13 +1,12 @@
 {
   "name": "quick_test",
+  "mode": "structural",
   "server_config": {
     "threads": 1
   },
   "tasks": [
     { "name": "load_graph" },
     { "name": "add_vertex", "ops": 10000, "batch_sizes": [1, 2, 4] },
-    { "name": "add_edge", "ops": 10000, "batch_sizes": [1, 2, 4] },
-    { "name": "update_vertex_property", "ops": 5000, "batch_sizes": [1, 2, 4] },
-    { "name": "update_edge_property", "ops": 5000, "batch_sizes": [1, 2, 4] }
+    { "name": "add_edge", "ops": 10000, "batch_sizes": [1, 2, 4] }
   ]
 }

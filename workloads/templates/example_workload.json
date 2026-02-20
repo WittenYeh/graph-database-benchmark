@@ -1,5 +1,6 @@
 {
   "name": "example_workload",
+  "mode": "structural",
   "server_config": {
     "threads": 8
   },
