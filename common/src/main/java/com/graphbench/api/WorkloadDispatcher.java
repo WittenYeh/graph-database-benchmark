@@ -15,9 +15,19 @@ import java.util.*;
 public class WorkloadDispatcher {
     private static final Gson gson = new Gson();
 
+    private static final Set<String> VERTEX_PROPERTY_TASKS = new HashSet<>(Arrays.asList(
+        "UPDATE_VERTEX_PROPERTY", "GET_VERTEX_BY_PROPERTY"
+    ));
+    private static final Set<String> EDGE_PROPERTY_TASKS = new HashSet<>(Arrays.asList(
+        "UPDATE_EDGE_PROPERTY", "GET_EDGE_BY_PROPERTY"
+    ));
+
     private final BenchmarkExecutor executor;
     private final String datasetPath;
     private final ProgressCallback progressCallback;
+
+    // Populated after LOAD_GRAPH; used to skip property tasks when dataset has no properties.
+    private CsvGraphReader.CsvMetadata csvMetadata;
 
     /**
      * Create a dispatcher for benchmarks.
@@ -133,11 +143,45 @@ public class WorkloadDispatcher {
                 result.putAll(loadResult);
                 result.put("status", "success");
 
+                // Read CSV headers to determine whether the dataset has vertex/edge properties.
+                // This is used later to skip property benchmark tasks on plain topology datasets.
+                csvMetadata = CsvGraphReader.readHeaders(datasetPath);
+                String nodeProps = Arrays.toString(csvMetadata.getNodePropertyHeaders());
+                String edgeProps = Arrays.toString(csvMetadata.getEdgePropertyHeaders());
+                progressCallback.sendLogMessage(
+                    "Dataset headers loaded — node properties: " + nodeProps
+                    + ", edge properties: " + edgeProps,
+                    "INFO"
+                );
+
                 // Create snapshot after loading graph
                 progressCallback.sendProgressCallback("snapshot_start", "SNAPSHOT", null, null, null, taskIndex, totalTasks);
                 executor.snapGraph();
                 progressCallback.sendProgressCallback("snapshot_complete", "SNAPSHOT", null, "success", null, taskIndex, totalTasks);
             } else {
+                // Check whether the dataset supports the required property columns.
+                // csvMetadata must be populated by a prior LOAD_GRAPH task.
+                if (csvMetadata == null) {
+                    throw new RuntimeException("csvMetadata is null: LOAD_GRAPH must run before any other task");
+                }
+
+                boolean isVertexPropTask = VERTEX_PROPERTY_TASKS.contains(taskType);
+                boolean isEdgePropTask   = EDGE_PROPERTY_TASKS.contains(taskType);
+                boolean hasVertexProps   = csvMetadata.getNodePropertyHeaders().length > 0;
+                boolean hasEdgeProps     = csvMetadata.getEdgePropertyHeaders().length > 0;
+
+                if ((isVertexPropTask && !hasVertexProps) || (isEdgePropTask && !hasEdgeProps)) {
+                    String reason = isVertexPropTask
+                        ? "Dataset has no vertex property columns in nodes.csv"
+                        : "Dataset has no edge property columns in edges.csv";
+                    progressCallback.sendLogMessage(
+                        "Skipping " + taskType + ": " + reason, "INFO"
+                    );
+                    result.put("status", "unexecute");
+                    result.put("skip_reason", reason);
+                    return result;
+                }
+
                 // Get batch_sizes, default to [1] if not specified
                 List<Integer> batchSizes = task.getBatchSizes();
                 if (batchSizes == null || batchSizes.isEmpty()) {

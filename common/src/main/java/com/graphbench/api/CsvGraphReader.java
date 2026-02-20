@@ -50,7 +50,34 @@ public class CsvGraphReader {
     }
 
     /**
-     * Read a graph dataset directory containing nodes.csv and edges.csv.
+     * Read only the CSV headers from nodes.csv and edges.csv without loading any data rows.
+     * Much faster than read() when only header information is needed.
+     *
+     * @param datasetDir Path to the dataset directory
+     * @return CsvMetadata with header information
+     */
+    public static CsvMetadata readHeaders(String datasetDir) {
+        CsvParserSettings settings = new CsvParserSettings();
+        settings.setHeaderExtractionEnabled(true);
+        settings.setLineSeparatorDetectionEnabled(true);
+        settings.setNumberOfRowsToSkip(0);
+
+        File nodesFile = new File(datasetDir, "nodes.csv");
+        CsvParser nodeParser = new CsvParser(settings);
+        nodeParser.beginParsing(nodesFile);
+        String[] nodeHeaders = nodeParser.getRecordMetadata().headers();
+        nodeParser.stopParsing();
+
+        File edgesFile = new File(datasetDir, "edges.csv");
+        CsvParser edgeParser = new CsvParser(settings);
+        edgeParser.beginParsing(edgesFile);
+        String[] edgeHeaders = edgeParser.getRecordMetadata().headers();
+        edgeParser.stopParsing();
+
+        return new CsvMetadata(nodeHeaders, edgeHeaders);
+    }
+
+    /**
      * Callbacks receive property maps built from CSV headers automatically.
      *
      * @param datasetDir   Path to the dataset directory
