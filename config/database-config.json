@@ -20,5 +20,15 @@
       "heap_size": "4G",
       "storage_backend": "berkeleyje"
     }
+  },
+  "arangodb": {
+    "docker_image": "bench-arangodb",
+    "dockerfile_path": "./docker/arangodb/Dockerfile",
+    "container_name": "arangodb-benchmark",
+    "api_port": 50082,
+    "runtime": "cpp",
+    "config": {
+      "server_threads": 8
+    }
   }
 }

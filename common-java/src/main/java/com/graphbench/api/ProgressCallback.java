@@ -24,7 +24,7 @@ public class ProgressCallback {
      */
     public void sendProgressCallback(String event, String taskName, String workloadFile,
                                      String status, Double durationSeconds, int taskIndex, int totalTasks) {
-        sendProgressCallback(event, taskName, workloadFile, status, durationSeconds, taskIndex, totalTasks, null, null, null);
+        sendProgressCallback(event, taskName, workloadFile, status, durationSeconds, taskIndex, totalTasks, null, null, null, null);
     }
 
     /**
@@ -33,6 +33,17 @@ public class ProgressCallback {
     public void sendProgressCallback(String event, String taskName, String workloadFile,
                                      String status, Double durationSeconds, int taskIndex, int totalTasks,
                                      Integer originalOpsCount, Integer validOpsCount, Integer filteredOpsCount) {
+        sendProgressCallback(event, taskName, workloadFile, status, durationSeconds, taskIndex, totalTasks,
+                           originalOpsCount, validOpsCount, filteredOpsCount, null);
+    }
+
+    /**
+     * Send progress callback to host with operation counts and num_ops.
+     */
+    public void sendProgressCallback(String event, String taskName, String workloadFile,
+                                     String status, Double durationSeconds, int taskIndex, int totalTasks,
+                                     Integer originalOpsCount, Integer validOpsCount, Integer filteredOpsCount,
+                                     Integer numOps) {
         if (callbackUrl == null || callbackUrl.isEmpty()) {
             return;
         }
@@ -66,6 +77,9 @@ public class ProgressCallback {
             }
             if (filteredOpsCount != null) {
                 payload.put("filtered_ops_count", filteredOpsCount);
+            }
+            if (numOps != null) {
+                payload.put("num_ops", numOps);
             }
 
             String jsonPayload = gson.toJson(payload);

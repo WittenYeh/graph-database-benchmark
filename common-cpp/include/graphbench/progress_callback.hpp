@@ -34,7 +34,7 @@ public:
                              int taskIndex,
                              int totalTasks) {
         sendProgressCallback(event, taskName, workloadFile, status, durationSeconds,
-                           taskIndex, totalTasks, -1, -1, -1);
+                           taskIndex, totalTasks, -1, -1, -1, -1);
     }
 
     /**
@@ -50,6 +50,24 @@ public:
                              int originalOpsCount,
                              int validOpsCount,
                              int filteredOpsCount) {
+        sendProgressCallback(event, taskName, workloadFile, status, durationSeconds,
+                           taskIndex, totalTasks, originalOpsCount, validOpsCount, filteredOpsCount, -1);
+    }
+
+    /**
+     * Send progress callback to host with operation counts and numOps.
+     */
+    void sendProgressCallback(const std::string& event,
+                             const std::string& taskName,
+                             const std::string& workloadFile,
+                             const std::string& status,
+                             double durationSeconds,
+                             int taskIndex,
+                             int totalTasks,
+                             int originalOpsCount,
+                             int validOpsCount,
+                             int filteredOpsCount,
+                             int numOps) {
         if (callbackUrl_.empty()) {
             return;
         }
@@ -78,6 +96,9 @@ public:
         }
         if (filteredOpsCount >= 0) {
             payload["filtered_ops_count"] = filteredOpsCount;
+        }
+        if (numOps >= 0) {
+            payload["num_ops"] = numOps;
         }
 
         sendHttpPost(payload.dump());

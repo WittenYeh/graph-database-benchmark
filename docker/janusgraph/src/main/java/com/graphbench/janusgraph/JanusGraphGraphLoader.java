@@ -5,6 +5,7 @@ import com.graphbench.api.ProgressCallback;
 import com.graphbench.api.TypeConverter;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
+import org.apache.tinkerpop.gremlin.structure.Direction;
 import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.janusgraph.core.JanusGraph;
@@ -139,6 +140,11 @@ public class JanusGraphGraphLoader {
                     progressCallback.sendLogMessage("✅ Created node property index: " + prop, "INFO");
                 }
             }
+            // Create edge label first
+            if (mgmt.getEdgeLabel("MyEdge") == null) {
+                mgmt.makeEdgeLabel("MyEdge").make();
+            }
+
             for (String prop : metadata.getEdgePropertyHeaders()) {
                 Class<?> dataType = metadata.getEdgePropertyType(prop);
                 progressCallback.sendLogMessage("▶️ Creating edge property index: " + prop + " (" + dataType.getSimpleName() + ")", "INFO");
@@ -146,10 +152,18 @@ public class JanusGraphGraphLoader {
                 if (key == null) {
                     key = mgmt.makePropertyKey(prop).dataType(dataType).make();
                 }
-                String indexName = "edge_" + prop + "_idx";
-                if (!mgmt.containsGraphIndex(indexName)) {
-                    mgmt.buildIndex(indexName, Edge.class).addKey(key).buildCompositeIndex();
-                    edgeIndexNames.add(indexName);
+
+                // Create both relation index (for vertex-centric queries) and composite index (for global queries)
+                String relationIndexName = "edge_relation_" + prop + "_idx";
+                if (!mgmt.containsRelationIndex(mgmt.getEdgeLabel("MyEdge"), relationIndexName)) {
+                    mgmt.buildEdgeIndex(mgmt.getEdgeLabel("MyEdge"), relationIndexName, Direction.BOTH, key);
+                }
+
+                // Create composite index for global edge property queries
+                String compositeIndexName = "edge_composite_" + prop + "_idx";
+                if (!mgmt.containsGraphIndex(compositeIndexName)) {
+                    mgmt.buildIndex(compositeIndexName, Edge.class).addKey(key).indexOnly(mgmt.getEdgeLabel("MyEdge")).buildCompositeIndex();
+                    edgeIndexNames.add(compositeIndexName);
                     progressCallback.sendLogMessage("✅ Created edge property index: " + prop, "INFO");
                 }
             }

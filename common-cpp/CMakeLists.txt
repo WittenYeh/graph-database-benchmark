@@ -25,9 +25,15 @@ FetchContent_MakeAvailable(json)
 # libcurl for HTTP callbacks
 find_package(CURL REQUIRED)
 
+# Link dependencies - use generator expressions to avoid export issues
 target_link_libraries(graphbench INTERFACE
-    nlohmann_json::nlohmann_json
+    $<BUILD_INTERFACE:nlohmann_json::nlohmann_json>
     CURL::libcurl
+)
+
+# For installed version, users need to find nlohmann_json themselves
+target_include_directories(graphbench INTERFACE
+    $<INSTALL_INTERFACE:${nlohmann_json_INCLUDE_DIRS}>
 )
 
 # Installation

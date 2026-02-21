@@ -5,14 +5,15 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import json
 import sys
 import threading
-from typing import Optional
+from typing import Optional, Callable, Dict, Any
 
 
 class ProgressHandler(BaseHTTPRequestHandler):
     """HTTP handler for progress callbacks"""
 
-    # Class variable to track restore state
+    # Class variables
     restore_expected = False
+    timeout_monitor = None  # Will be set by ProgressServer
 
     def log_message(self, format, *args):
         """Suppress default HTTP logging"""
@@ -95,13 +96,20 @@ class ProgressHandler(BaseHTTPRequestHandler):
     def _handle_subtask_start(self, data):
         """Handle subtask start event"""
         task_name = data.get('task_name')
+        num_ops = data.get('num_ops', 0)
+
         # Check if restore was expected but didn't happen
         if ProgressHandler.restore_expected:
             print(f"    ⚠️  Warning: Expected restore before subtask start")
         print(f"    ▶️  {task_name}")
         sys.stdout.flush()
+
         # Reset restore expectation when subtask starts
         ProgressHandler.restore_expected = False
+
+        # Start timeout monitor if available
+        if ProgressHandler.timeout_monitor and num_ops > 0:
+            ProgressHandler.timeout_monitor.start_subtask_timer(data)
 
     def _handle_subtask_complete(self, data):
         """Handle subtask complete event"""
@@ -127,6 +135,11 @@ class ProgressHandler(BaseHTTPRequestHandler):
 
         print(msg)
         sys.stdout.flush()
+
+        # Cancel timeout monitor if available
+        if ProgressHandler.timeout_monitor:
+            ProgressHandler.timeout_monitor.cancel_subtask_timer()
+
         # After subtask completes, expect restore before next subtask
         ProgressHandler.restore_expected = True
     def _handle_snapshot_start(self, data):
@@ -188,13 +201,21 @@ class ProgressHandler(BaseHTTPRequestHandler):
 class ProgressServer:
     """HTTP server for receiving progress callbacks from containers"""
 
-    def __init__(self, port: int = 8888):
+    def __init__(self, port: int = 8888, timeout_callback: Optional[Callable[[Dict[str, Any]], None]] = None):
         self.port = port
         self.server: Optional[HTTPServer] = None
         self.thread: Optional[threading.Thread] = None
+        self.timeout_callback = timeout_callback
 
     def start(self):
         """Start the progress server in a background thread"""
+        # Import here to avoid circular dependency
+        from timeout_monitor import TimeoutMonitor
+
+        # Initialize timeout monitor if callback provided
+        if self.timeout_callback:
+            ProgressHandler.timeout_monitor = TimeoutMonitor(self.timeout_callback)
+
         for port in range(self.port, self.port + 10):
             try:
                 self.server = HTTPServer(('0.0.0.0', port), ProgressHandler)
@@ -210,6 +231,11 @@ class ProgressServer:
 
     def stop(self):
         """Stop the progress server"""
+        # Shutdown timeout monitor
+        if ProgressHandler.timeout_monitor:
+            ProgressHandler.timeout_monitor.shutdown()
+            ProgressHandler.timeout_monitor = None
+
         if self.server:
             self.server.shutdown()
             self.server.server_close()

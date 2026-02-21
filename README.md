@@ -1,6 +1,6 @@
 # Graph Database Benchmark
 
-An embedded graph database benchmark framework for testing Neo4j and JanusGraph **latency performance** using **native APIs** instead of query engines.
+An embedded graph database benchmark framework for testing Neo4j, JanusGraph, and ArangoDB **latency performance** using **native APIs** instead of query engines.
 
 ## Project Structure
 
@@ -26,19 +26,35 @@ graph-database-benchmark/
 │           ├── AddVertexParams.java
 │           ├── AddEdgeParams.java
 │           └── ...
+├── common-cpp/                    # Shared C++ components (headers-only)
+│   ├── CMakeLists.txt
+│   └── include/graphbench/
+│       ├── benchmark_executor.hpp      # CRTP base class
+│       ├── property_benchmark_executor.hpp
+│       ├── progress_callback.hpp
+│       └── benchmark_utils.hpp
 ├── docker/                        # Docker container implementations
-│   ├── neo4j/                     # Neo4j embedded benchmark
+│   ├── neo4j/                     # Neo4j embedded benchmark (Java)
 │   │   ├── Dockerfile
 │   │   ├── pom.xml
 │   │   └── src/main/java/com/graphbench/neo4j/
 │   │       ├── BenchmarkServer.java
 │   │       └── Neo4jBenchmarkExecutor.java
-│   └── janusgraph/                # JanusGraph embedded benchmark
+│   ├── janusgraph/                # JanusGraph embedded benchmark (Java)
+│   │   ├── Dockerfile
+│   │   ├── pom.xml
+│   │   └── src/main/java/com/graphbench/janusgraph/
+│   │       ├── BenchmarkServer.java
+│   │       └── JanusGraphBenchmarkExecutor.java
+│   └── arangodb/                  # ArangoDB benchmark (C++)
 │       ├── Dockerfile
-│       ├── pom.xml
-│       └── src/main/java/com/graphbench/janusgraph/
-│           ├── BenchmarkServer.java
-│           └── JanusGraphBenchmarkExecutor.java
+│       ├── CMakeLists.txt
+│       └── src/
+│           ├── arango_utils.hpp
+│           ├── arangodb_graph_loader.hpp
+│           ├── arangodb_benchmark_executor.hpp
+│           ├── arangodb_property_benchmark_executor.hpp
+│           └── arangodb_benchmark_server.cpp
 ├── config/                        # Configuration files
 │   ├── database-config.json
 │   └── datasets.json
@@ -75,19 +91,25 @@ graph-database-benchmark/
          │   DOCKER: Neo4j Embedded    │        │ DOCKER: JanusGraph+BDB   │
          │  ┌────────────────────────┐ │        │ ┌──────────────────────┐ │
          │  │  BenchmarkServer       │ │        │ │  BenchmarkServer     │ │
-         │  │  (HTTP API: 8080)      │ │        │ │  (HTTP API: 8081)    │ │
+         │  │  (HTTP API: 50080)     │ │        │ │  (HTTP API: 50081)   │ │
          │  └────────────────────────┘ │        │ └──────────────────────┘ │
          │  ┌────────────────────────┐ │        │ ┌──────────────────────┐ │
-         │  │ WorkloadDispatcher     │ │        │ │ WorkloadDispatcher   │ │
-         │  │ - Parse JSON workloads │ │        │ │ - Parse JSON workloads│ │
-         │  │ - Dispatch to executor │ │        │ │ - Dispatch to executor│ │
-         │  └────────────────────────┘ │        │ └──────────────────────┘ │
-         │  ┌────────────────────────┐ │        │ ┌──────────────────────┐ │
-         │  │ BenchmarkExecutor      │ │        │ │ BenchmarkExecutor    │ │
-         │  │ - Native Neo4j API     │ │        │ │ - TinkerPop API      │ │
-         │  │ - Serial execution     │ │        │ │ - Serial execution   │ │
+         │  │ Neo4jBenchmarkExecutor │ │        │ │ JanusGraphExecutor   │ │
+         │  │  (Native Java API)     │ │        │ │ (TinkerPop API)      │ │
          │  └────────────────────────┘ │        │ └──────────────────────┘ │
          └─────────────────────────────┘        └──────────────────────────┘
+
+         ┌─────────────────────▼────┐
+         │ DOCKER: ArangoDB         │
+         │ ┌──────────────────────┐ │
+         │ │  BenchmarkServer     │ │
+         │ │  (HTTP API: 50082)   │ │
+         │ └──────────────────────┘ │
+         │ ┌──────────────────────┐ │
+         │ │ ArangoDBExecutor     │ │
+         │ │ (Fuerte C++ API)     │ │
+         │ └──────────────────────┘ │
+         └──────────────────────────┘
 ```
 
 The benchmark framework consists of two main components:
@@ -98,7 +120,7 @@ The benchmark framework consists of two main components:
 - **DockerManager**: Manages Docker containers and communicates with benchmark servers
 - **ReportGenerator**: Generates visualizations from benchmark results using Seaborn
 
-### Docker Container (Java)
+### Docker Container (Java/C++)
 - **BenchmarkServer**: HTTP API server that receives execution requests and returns metrics
 - **WorkloadDispatcher**: Reads JSON workload files and dispatches operations to executor
 - **BenchmarkExecutor**: Executes operations serially using native APIs, measures per-operation latency
@@ -107,11 +129,13 @@ The benchmark framework consists of two main components:
 
 ## Features
 
-- **Native API Execution**: Direct database API calls (Neo4j Embedded API, TinkerPop Structure API) instead of query engines
+- **Native API Execution**: Direct database API calls (Neo4j Embedded API, TinkerPop Structure API, ArangoDB Fuerte C++ API) instead of query engines
 - **Latency Testing**: Serial execution with per-operation latency tracking in microseconds
 - **10 Benchmark Operations**: ADD_VERTEX, UPSERT_VERTEX_PROPERTY, REMOVE_VERTEX, ADD_EDGE, UPSERT_EDGE_PROPERTY, REMOVE_EDGE, GET_NBRS, GET_VERTEX_BY_PROPERTY, GET_EDGE_BY_PROPERTY, LOAD_GRAPH
-- Support for Neo4j Embedded and JanusGraph with BerkeleyDB backend
-- Optimized graph loading with two-pass streaming approach
+- Support for Neo4j Embedded, JanusGraph with BerkeleyDB backend, and ArangoDB
+- **Multi-Language Support**: Java (Neo4j, JanusGraph) and C++ (ArangoDB) implementations
+- **Static Polymorphism**: C++ implementation uses CRTP for zero-overhead abstraction
+- Optimized graph loading with batch insertion
 - Beautiful visualizations with Seaborn
 - Docker-based isolation for clean benchmarking
 - Reproducible results with seed support
@@ -212,7 +236,7 @@ python host/benchmark_launcher.py \
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `--database-name` | (required) | Database to benchmark: `neo4j` or `janusgraph` |
+| `--database-name` | (required) | Database to benchmark: `neo4j`, `janusgraph`, or `arangodb` |
 | `--database-config` | `config/database-config.json` | Path to database configuration file |
 | `--dataset-config` | `config/datasets.json` | Path to dataset configuration file |
 | `--dataset-name` | (required) | Dataset name(s) to test (can specify multiple) |
@@ -521,10 +545,17 @@ Example output:
 - Transaction management via `g.tx().commit()`
 - No Gremlin query parsing overhead
 
+**ArangoDB (Fuerte C++ API):**
+- Direct calls to ArangoDB HTTP API via Fuerte driver
+- Batch operations using AQL `FOR ... IN @array INSERT/UPDATE/REMOVE` patterns
+- Optimized batch insertion for graph loading
+- No AQL query parsing overhead for batch operations
+
 ## Database Versions
 
 - **Neo4j**: 2026.01.4 (requires Java 21)
 - **JanusGraph**: 1.2.0-20251114-142114.b424a8f with BerkeleyDB backend (requires Java 17)
+- **ArangoDB**: 3.12.7-2 with Fuerte C++ driver (requires C++17)
 
 ## Design Principles
 

@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import sys
+import requests
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
@@ -30,6 +31,9 @@ class BenchmarkLauncher:
         self.docker_manager = DockerManager(self.database_config, args.rebuild)
         self.workload_compiler = WorkloadCompiler(self.database_config)
         self.dataset_loader = DatasetLoader(self.dataset_config)
+
+        # Store current container for timeout handling
+        self.current_container = None
 
     def _load_json(self, filepath: str) -> Dict[str, Any]:
         """Load JSON configuration file"""
@@ -67,8 +71,22 @@ class BenchmarkLauncher:
         mode = self.workload_config.get('mode', 'structural')
         print(f"📋 Workload: {workload_name} (mode: {mode})")
 
-        # Start progress server
-        progress_server = ProgressServer(port=8888)
+        # Define timeout callback
+        def handle_timeout(subtask_data: Dict[str, Any]):
+            """Handle subtask timeout - stop container to abort execution"""
+            print(f"    ❌ Subtask '{subtask_data.get('task_name')}' TIMEOUT!")
+            print(f"    🛑 Stopping container to abort execution...")
+
+            # Stop the container immediately to abort the hanging HTTP request
+            if self.current_container:
+                try:
+                    self.current_container.stop(timeout=5)
+                    print(f"    ✓ Container stopped due to timeout")
+                except Exception as e:
+                    print(f"    ⚠️  Failed to stop container: {e}")
+
+        # Start progress server with timeout callback
+        progress_server = ProgressServer(port=8888, timeout_callback=handle_timeout)
         progress_server.start()
         callback_url = progress_server.get_callback_url()
 
@@ -109,6 +127,9 @@ class BenchmarkLauncher:
                     mode=mode
                 )
 
+                # Store container for timeout handling
+                self.current_container = container
+
                 try:
                     # Execute benchmark tasks
                     print(f"⏱️  Executing benchmark tasks...")
@@ -132,7 +153,20 @@ class BenchmarkLauncher:
 
                     print(f"✅ Results saved to: {output_file}")
 
+                except (requests.exceptions.RequestException, Exception) as e:
+                    # Handle timeout or other errors
+                    error_type = type(e).__name__
+                    print(f"❌ Benchmark execution failed: {error_type}")
+                    if "timeout" in str(e).lower() or "timed out" in str(e).lower():
+                        print(f"⚠️  This was likely caused by a subtask timeout.")
+                        print(f"⚠️  Partial results may have been lost.")
+                    else:
+                        print(f"⚠️  Error details: {e}")
+
                 finally:
+                    # Clear current container reference
+                    self.current_container = None
+
                     # Stop and remove container
                     print(f"🛑 Stopping container...")
                     self.docker_manager.stop_container(container)
@@ -151,7 +185,7 @@ def main():
     )
 
     parser.add_argument('--database-name', required=True,
-                        choices=['neo4j', 'janusgraph'],
+                        choices=['neo4j', 'janusgraph', 'arangodb'],
                         help='Database to benchmark')
 
     parser.add_argument('--database-config', default='config/database-config.json',

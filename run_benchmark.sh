@@ -4,15 +4,15 @@
 #
 # Usage with named arguments (recommended):
 #   ./run_benchmark.sh --database neo4j --dataset coAuthorsDBLP
-#   ./run_benchmark.sh --database neo4j,janusgraph --dataset coAuthorsDBLP,delaunay_n13
+#   ./run_benchmark.sh --database neo4j,janusgraph,arangodb --dataset coAuthorsDBLP,delaunay_n13
 #   ./run_benchmark.sh --database neo4j --dataset coAuthorsDBLP --workload workloads/templates/quick_test.json
 #
 # Usage with positional arguments (legacy):
 #   ./run_benchmark.sh neo4j coAuthorsDBLP
-#   ./run_benchmark.sh neo4j,janusgraph coAuthorsDBLP,delaunay_n13
+#   ./run_benchmark.sh neo4j,janusgraph,arangodb coAuthorsDBLP,delaunay_n13
 #
 # Arguments:
-#   --database, -d    Comma-separated list of databases (e.g., "neo4j,janusgraph")
+#   --database, -d    Comma-separated list of databases (e.g., "neo4j,janusgraph,arangodb")
 #   --dataset, -s     Comma-separated list of datasets (e.g., "coAuthorsDBLP,delaunay_n13")
 #   --workload, -w    Path to workload config (default: workloads/templates/example_workload.json)
 #   --help, -h        Show this help message
@@ -43,15 +43,15 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: ./run_benchmark.sh [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  --database, -d    Comma-separated list of databases (e.g., 'neo4j,janusgraph')"
+            echo "  --database, -d    Comma-separated list of databases (e.g., 'neo4j,janusgraph,arangodb')"
             echo "  --dataset, -s     Comma-separated list of datasets (e.g., 'coAuthorsDBLP,delaunay_n13')"
             echo "  --workload, -w    Path to workload config (default: workloads/templates/example_workload.json)"
             echo "  --help, -h        Show this help message"
             echo ""
             echo "Examples:"
             echo "  ./run_benchmark.sh --database neo4j --dataset coAuthorsDBLP"
-            echo "  ./run_benchmark.sh -d neo4j,janusgraph -s coAuthorsDBLP,delaunay_n13"
-            echo "  ./run_benchmark.sh -d neo4j -s coAuthorsDBLP -w workloads/templates/quick_test.json"
+            echo "  ./run_benchmark.sh -d neo4j,janusgraph,arangodb -s coAuthorsDBLP,delaunay_n13"
+            echo "  ./run_benchmark.sh -d arangodb -s coAuthorsDBLP -w workloads/templates/quick_test.json"
             exit 0
             ;;
         -*)

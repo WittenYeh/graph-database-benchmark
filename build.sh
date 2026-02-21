@@ -10,12 +10,12 @@ echo "=========================================="
 
 # Stop and remove containers if they exist
 echo "Stopping containers..."
-docker stop neo4j-benchmark janusgraph-benchmark 2>/dev/null || true
-docker rm neo4j-benchmark janusgraph-benchmark 2>/dev/null || true
+docker stop neo4j-benchmark janusgraph-benchmark arangodb-benchmark 2>/dev/null || true
+docker rm neo4j-benchmark janusgraph-benchmark arangodb-benchmark 2>/dev/null || true
 
 # Remove old images if they exist
 echo "Removing old images..."
-docker rmi bench-neo4j bench-janusgraph 2>/dev/null || true
+docker rmi bench-neo4j bench-janusgraph bench-arangodb 2>/dev/null || true
 
 echo
 echo "=========================================="
@@ -31,6 +31,13 @@ docker build -t bench-janusgraph -f ./docker/janusgraph/Dockerfile .
 
 echo
 echo "=========================================="
+echo "Building ArangoDB benchmark image..."
+echo "=========================================="
+docker build -t bench-arangodb -f ./docker/arangodb/Dockerfile .
+
+echo
+echo "=========================================="
 echo "All images built successfully!"
 echo "=========================================="
 docker images | grep bench-
+

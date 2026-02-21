@@ -18,20 +18,10 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(json)
 
-# Fuerte (ArangoDB C++ driver)
-FetchContent_Declare(
-    fuerte
-    GIT_REPOSITORY https://github.com/arangodb/arangodb.git
-    GIT_TAG v3.12.7.2
-    SOURCE_SUBDIR 3rdParty/fuerte
-)
-FetchContent_MakeAvailable(fuerte)
-
 # libcurl
 find_package(CURL REQUIRED)
 
-# Boost
-find_package(Boost REQUIRED COMPONENTS system)
+# No additional dependencies needed - using REST API with libcurl
 
 # HTTP server library (cpp-httplib)
 FetchContent_Declare(
@@ -41,21 +31,28 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(httplib)
 
+# csv-parser for CSV reading
+FetchContent_Declare(
+    csv_parser
+    GIT_REPOSITORY https://github.com/vincentlaucsb/csv-parser.git
+    GIT_TAG 2.5.0
+)
+FetchContent_MakeAvailable(csv_parser)
+
 # Build benchmark executor
 add_executable(arangodb_benchmark_server
-    src/arangodb_benchmark_executor.cpp
     src/arangodb_benchmark_server.cpp
 )
 
 target_link_libraries(arangodb_benchmark_server PRIVATE
     graphbench::graphbench
     nlohmann_json::nlohmann_json
-    fuerte
     CURL::libcurl
-    Boost::system
     httplib::httplib
+    csv
 )
 
 target_include_directories(arangodb_benchmark_server PRIVATE
     ${CMAKE_SOURCE_DIR}/src
+    ${csv_parser_SOURCE_DIR}/single_include
 )

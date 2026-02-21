@@ -200,9 +200,13 @@ public class WorkloadDispatcher {
                     executor.restoreGraph();
                     progressCallback.sendProgressCallback("restore_complete", "RESTORE", null, "success", null, taskIndex, totalTasks);
 
-                    // Send subtask start callback
+                    // Calculate num_ops for timeout monitoring
+                    Integer numOps = getNumOps(taskType, preprocessedParams);
+
+                    // Send subtask start callback with num_ops
                     String subtaskName = taskType + " (batch_size=" + batchSize + ")";
-                    progressCallback.sendProgressCallback("subtask_start", subtaskName, null, null, null, taskIndex, totalTasks);
+                    progressCallback.sendProgressCallback("subtask_start", subtaskName, null, null, null, taskIndex, totalTasks,
+                                                         null, null, null, numOps);
 
                     Map<String, Object> subtaskResult = new HashMap<>();
                     long taskStartTime = System.nanoTime();
@@ -291,6 +295,38 @@ public class WorkloadDispatcher {
                 break;
         }
         return preprocessed;
+    }
+
+    /**
+     * Get the number of operations for a task (for timeout calculation).
+     */
+    private Integer getNumOps(String taskType, Map<String, Object> parameters) {
+        switch (taskType) {
+            case "ADD_NODE":
+            case "REMOVE_NODE":
+            case "GET_NODE":
+            case "GET_NBRS":
+                Object ids = parameters.get("ids");
+                return (ids instanceof List) ? ((List<?>) ids).size() : 0;
+
+            case "ADD_EDGE":
+            case "REMOVE_EDGE":
+                Object pairs = parameters.get("pairs");
+                return (pairs instanceof List) ? ((List<?>) pairs).size() : 0;
+
+            case "UPDATE_VERTEX_PROPERTY":
+            case "UPDATE_EDGE_PROPERTY":
+                Object updates = parameters.get("updates");
+                return (updates instanceof List) ? ((List<?>) updates).size() : 0;
+
+            case "GET_VERTEX_BY_PROPERTY":
+            case "GET_EDGE_BY_PROPERTY":
+                Object queries = parameters.get("queries");
+                return (queries instanceof List) ? ((List<?>) queries).size() : 0;
+
+            default:
+                return 0;
+        }
     }
 
     /**
