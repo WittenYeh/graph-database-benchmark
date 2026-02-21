@@ -90,7 +90,8 @@ class ProgressHandler(BaseHTTPRequestHandler):
         status = data.get('status')
 
         status_icon = "✓" if status == "success" else "✗"
-        print(f"  {status_icon}  Task {task_index + 1}/{total_tasks}: {task_name} completed in {duration:.2f}s ({status})")
+        duration_str = f"{duration:.2f}s" if duration is not None else "N/A"
+        print(f"  {status_icon}  Task {task_index + 1}/{total_tasks}: {task_name} completed in {duration_str} ({status})")
         sys.stdout.flush()  # Force flush to ensure output is displayed
 
     def _handle_subtask_start(self, data):
@@ -123,7 +124,8 @@ class ProgressHandler(BaseHTTPRequestHandler):
         status_icon = "✓" if status == "success" else "✗"
 
         # Build output message
-        msg = f"    {status_icon}  {task_name} completed in {duration:.2f}s"
+        duration_str = f"{duration:.2f}s" if duration is not None else "N/A"
+        msg = f"    {status_icon}  {task_name} completed in {duration_str}"
 
         # Add operation counts if available
         if original_ops is not None and valid_ops is not None:

@@ -1,26 +1,34 @@
 #include "arangodb_benchmark_executor.hpp"
-#include <graphbench/benchmark_server.hpp>
-#include <graphbench/benchmark_utils.hpp>
-#include <iostream>
-#include <memory>
+#include "arangodb_property_benchmark_executor.hpp"
+#include <graphbench/benchmark_main.hpp>
 
 using namespace graphbench;
 
 /**
- * Main entry point for ArangoDB structural benchmark server.
+ * Register ArangoDB executors and start server.
+ * This file only contains executor registration - main() is in common-cpp.
  */
-int main(int argc, char* argv[]) {
-    try {
-        // Structural benchmark executor
-        startBenchmarkServer<ArangoDBBenchmarkExecutor>(
-            "arangodb",
-            "ArangoDB",
-            []() { return std::make_unique<ArangoDBBenchmarkExecutor>(); }
-        );
-    } catch (const std::exception& e) {
-        std::cerr << "Fatal error: " << e.what() << std::endl;
-        return 1;
-    }
 
-    return 0;
+// Register structural executor
+static bool registered_structural = []() {
+    ExecutorRegistry<ArangoDBBenchmarkExecutor>::registerExecutor(
+        "arangodb",
+        "ArangoDB",
+        []() { return std::make_unique<ArangoDBBenchmarkExecutor>(); }
+    );
+    return true;
+}();
+
+// Register property executor
+static bool registered_property = []() {
+    ExecutorRegistry<ArangoDBBenchmarkExecutor>::registerExecutor(
+        "arangodb-property",
+        "ArangoDB (Property)",
+        []() { return std::make_unique<ArangoDBPropertyBenchmarkExecutor>(); }
+    );
+    return true;
+}();
+
+int main(int argc, char* argv[]) {
+    return benchmarkMain<ArangoDBBenchmarkExecutor>(argc, argv);
 }

@@ -3,6 +3,8 @@
 #include <nlohmann/json.hpp>
 #include <graphbench/progress_callback.hpp>
 #include <graphbench/benchmark_utils.hpp>
+#include <graphbench/workload_parameters.hpp>
+#include <graphbench/parameter_parser.hpp>
 #include <filesystem>
 #include <fstream>
 #include <vector>
@@ -26,7 +28,7 @@ template<typename Executor>
 class WorkloadDispatcher {
 public:
     WorkloadDispatcher(Executor* executor, const std::string& datasetPath)
-        : executor_(executor), datasetPath_(datasetPath) {
+        : executor_(executor), datasetPath_(datasetPath), parameterParser_(executor) {
         // Get progress callback URL from environment
         std::string callbackUrl = BenchmarkUtils::getEnv("PROGRESS_CALLBACK_URL", "");
         progressCallback_ = std::make_shared<ProgressCallback>(callbackUrl);
@@ -100,6 +102,7 @@ private:
     Executor* executor_;
     std::string datasetPath_;
     std::shared_ptr<ProgressCallback> progressCallback_;
+    ParameterParser<Executor> parameterParser_;
 
     std::string getCurrentTimestamp() {
         auto now = std::chrono::system_clock::now();
@@ -146,21 +149,44 @@ private:
 
             if (taskType == "LOAD_GRAPH") {
                 executeLoadGraph(result);
-            } else if (taskType == "ADD_VERTEX") {
-                executeBatchTask(workload, result, taskIndex, totalTasks, [this](int count, int batchSize) {
-                    return executor_->addVertex(count, batchSize);
-                });
-            } else if (taskType == "ADD_EDGE") {
-                executeAddEdge(workload, result, taskIndex, totalTasks);
-            } else if (taskType == "REMOVE_VERTEX") {
-                executeRemoveVertex(workload, result, taskIndex, totalTasks);
-            } else if (taskType == "REMOVE_EDGE") {
-                executeRemoveEdge(workload, result, taskIndex, totalTasks);
-            } else if (taskType == "GET_NBRS") {
-                executeGetNbrs(workload, result, taskIndex, totalTasks);
             } else {
-                result["status"] = "skipped";
-                result["message"] = "Task type not recognized: " + taskType;
+                // Get parameters for all non-LOAD_GRAPH tasks
+                const auto& parameters = workload.at("parameters");
+
+                if (taskType == "ADD_VERTEX") {
+                    auto params = parameterParser_.parseAddVertexParameters(parameters);
+                    executeBatchOperation(workload, result, taskIndex, totalTasks, params.count,
+                        [this, &params](int batchSize) {
+                            return executor_->addVertex(params.count, batchSize);
+                        });
+                } else if (taskType == "ADD_EDGE") {
+                    auto params = parameterParser_.parseAddEdgeParameters(parameters);
+                    executeBatchOperation(workload, result, taskIndex, totalTasks, params.originalCount,
+                        [this, &params](int batchSize) {
+                            return executor_->addEdge(params.label, params.pairs, batchSize);
+                        });
+                } else if (taskType == "REMOVE_VERTEX") {
+                    auto params = parameterParser_.parseRemoveVertexParameters(parameters);
+                    executeBatchOperation(workload, result, taskIndex, totalTasks, params.originalCount,
+                        [this, &params](int batchSize) {
+                            return executor_->removeVertex(params.systemIds, batchSize);
+                        });
+                } else if (taskType == "REMOVE_EDGE") {
+                    auto params = parameterParser_.parseRemoveEdgeParameters(parameters);
+                    executeBatchOperation(workload, result, taskIndex, totalTasks, params.originalCount,
+                        [this, &params](int batchSize) {
+                            return executor_->removeEdge(params.label, params.pairs, batchSize);
+                        });
+                } else if (taskType == "GET_NBRS") {
+                    auto params = parameterParser_.parseGetNbrsParameters(parameters);
+                    executeBatchOperation(workload, result, taskIndex, totalTasks, params.originalCount,
+                        [this, &params](int batchSize) {
+                            return executor_->getNbrs(params.direction, params.systemIds, batchSize);
+                        });
+                } else {
+                    result["status"] = "skipped";
+                    result["message"] = "Task type not recognized: " + taskType;
+                }
             }
 
             auto endTime = std::chrono::high_resolution_clock::now();
@@ -188,249 +214,55 @@ private:
         result["nodes"] = std::any_cast<int>(loadResult["nodes"]);
         result["edges"] = std::any_cast<int>(loadResult["edges"]);
         result["status"] = "success";
-    }
 
-    void executeAddEdge(const json& workload, json& result, int taskIndex, int totalTasks) {
-        const auto& parameters = workload.at("parameters");
-        std::string label = parameters.at("label").get<std::string>();
-        const auto& pairs = parameters.at("pairs");
-        std::vector<int> batchSizes = workload.at("batch_sizes").get<std::vector<int>>();
-
-        json batchResults = json::array();
-
-        for (int batchSize : batchSizes) {
-            // Send subtask start callback
-            std::string subtaskName = "ADD_EDGE (batch_size=" + std::to_string(batchSize) + ")";
-            int numOps = pairs.size();
-            progressCallback_->sendProgressCallback("subtask_start", subtaskName, "",
-                                                   "", -1.0, taskIndex, totalTasks,
-                                                   numOps, -1, -1, numOps);
-
-            std::vector<std::pair<std::any, std::any>> edgePairs;
-            for (const auto& pair : pairs) {
-                int64_t src = pair.at("src").get<int64_t>();
-                int64_t dst = pair.at("dst").get<int64_t>();
-                // Convert origin IDs to system IDs
-                std::any srcSystemId = executor_->getSystemId(src);
-                std::any dstSystemId = executor_->getSystemId(dst);
-                edgePairs.push_back({srcSystemId, dstSystemId});
-            }
-
-            auto startTime = std::chrono::high_resolution_clock::now();
-            auto latencies = executor_->addEdge(label, edgePairs, batchSize);
-            auto endTime = std::chrono::high_resolution_clock::now();
-            double duration = std::chrono::duration<double>(endTime - startTime).count();
-
-            double avgLatency = 0.0;
-            for (double lat : latencies) {
-                avgLatency += lat;
-            }
-            avgLatency /= latencies.size();
-
-            json batchResult;
-            batchResult["batch_size"] = batchSize;
-            batchResult["latency_us"] = avgLatency;
-            batchResult["validOpsCount"] = pairs.size();
-            batchResult["filteredOpsCount"] = 0;
-            batchResult["errorCount"] = 0;
-            batchResult["originalOpsCount"] = pairs.size();
-            batchResult["status"] = "success";
-
-            batchResults.push_back(batchResult);
-
-            // Send subtask complete callback
-            progressCallback_->sendProgressCallback("subtask_complete", subtaskName, "",
-                                                   "success", duration, taskIndex, totalTasks,
-                                                   (int)pairs.size(), (int)pairs.size(), 0);
+        // Create snapshot after loading graph
+        try {
+            progressCallback_->sendProgressCallback("snapshot_start", "SNAPSHOT", "", "", -1.0, 0, 0);
+            executor_->snapGraph();
+            progressCallback_->sendProgressCallback("snapshot_complete", "SNAPSHOT", "", "success", -1.0, 0, 0);
+        } catch (const std::exception& e) {
+            progressCallback_->sendProgressCallback("snapshot_complete", "SNAPSHOT", "", "failed", -1.0, 0, 0);
+            std::cerr << "Warning: Failed to create snapshot: " << e.what() << std::endl;
         }
-
-        result["batch_results"] = batchResults;
-        result["status"] = "success";
     }
 
-    void executeRemoveVertex(const json& workload, json& result, int taskIndex, int totalTasks) {
-        const auto& parameters = workload.at("parameters");
-        auto vertexIds = parameters.at("ids").get<std::vector<int64_t>>();
-        std::vector<int> batchSizes = workload.at("batch_sizes").get<std::vector<int>>();
-
-        json batchResults = json::array();
-
-        for (int batchSize : batchSizes) {
-            // Send subtask start callback
-            std::string subtaskName = "REMOVE_VERTEX (batch_size=" + std::to_string(batchSize) + ")";
-            int numOps = vertexIds.size();
-            progressCallback_->sendProgressCallback("subtask_start", subtaskName, "",
-                                                   "", -1.0, taskIndex, totalTasks,
-                                                   numOps, -1, -1, numOps);
-
-            // Convert origin IDs to system IDs
-            std::vector<std::any> systemIds;
-            for (int64_t originId : vertexIds) {
-                systemIds.push_back(executor_->getSystemId(originId));
-            }
-
-            auto startTime = std::chrono::high_resolution_clock::now();
-            auto latencies = executor_->removeVertex(systemIds, batchSize);
-            auto endTime = std::chrono::high_resolution_clock::now();
-            double duration = std::chrono::duration<double>(endTime - startTime).count();
-
-            double avgLatency = 0.0;
-            for (double lat : latencies) {
-                avgLatency += lat;
-            }
-            avgLatency /= latencies.size();
-
-            json batchResult;
-            batchResult["batch_size"] = batchSize;
-            batchResult["latency_us"] = avgLatency;
-            batchResult["validOpsCount"] = vertexIds.size();
-            batchResult["filteredOpsCount"] = 0;
-            batchResult["errorCount"] = 0;
-            batchResult["originalOpsCount"] = vertexIds.size();
-            batchResult["status"] = "success";
-
-            batchResults.push_back(batchResult);
-
-            // Send subtask complete callback
-            progressCallback_->sendProgressCallback("subtask_complete", subtaskName, "",
-                                                   "success", duration, taskIndex, totalTasks,
-                                                   (int)vertexIds.size(), (int)vertexIds.size(), 0);
-        }
-
-        result["batch_results"] = batchResults;
-        result["status"] = "success";
-    }
-
-    void executeRemoveEdge(const json& workload, json& result, int taskIndex, int totalTasks) {
-        const auto& parameters = workload.at("parameters");
-        std::string label = parameters.at("label").get<std::string>();
-        const auto& pairs = parameters.at("pairs");
-        std::vector<int> batchSizes = workload.at("batch_sizes").get<std::vector<int>>();
-
-        json batchResults = json::array();
-
-        for (int batchSize : batchSizes) {
-            // Send subtask start callback
-            std::string subtaskName = "REMOVE_EDGE (batch_size=" + std::to_string(batchSize) + ")";
-            int numOps = pairs.size();
-            progressCallback_->sendProgressCallback("subtask_start", subtaskName, "",
-                                                   "", -1.0, taskIndex, totalTasks,
-                                                   numOps, -1, -1, numOps);
-
-            std::vector<std::pair<std::any, std::any>> edgePairs;
-            for (const auto& pair : pairs) {
-                int64_t src = pair.at("src").get<int64_t>();
-                int64_t dst = pair.at("dst").get<int64_t>();
-                // Convert origin IDs to system IDs
-                std::any srcSystemId = executor_->getSystemId(src);
-                std::any dstSystemId = executor_->getSystemId(dst);
-                edgePairs.push_back({srcSystemId, dstSystemId});
-            }
-
-            auto startTime = std::chrono::high_resolution_clock::now();
-            auto latencies = executor_->removeEdge(label, edgePairs, batchSize);
-            auto endTime = std::chrono::high_resolution_clock::now();
-            double duration = std::chrono::duration<double>(endTime - startTime).count();
-
-            double avgLatency = 0.0;
-            for (double lat : latencies) {
-                avgLatency += lat;
-            }
-            avgLatency /= latencies.size();
-
-            json batchResult;
-            batchResult["batch_size"] = batchSize;
-            batchResult["latency_us"] = avgLatency;
-            batchResult["validOpsCount"] = pairs.size();
-            batchResult["filteredOpsCount"] = 0;
-            batchResult["errorCount"] = 0;
-            batchResult["originalOpsCount"] = pairs.size();
-            batchResult["status"] = "success";
-
-            batchResults.push_back(batchResult);
-
-            // Send subtask complete callback
-            progressCallback_->sendProgressCallback("subtask_complete", subtaskName, "",
-                                                   "success", duration, taskIndex, totalTasks,
-                                                   (int)pairs.size(), (int)pairs.size(), 0);
-        }
-
-        result["batch_results"] = batchResults;
-        result["status"] = "success";
-    }
-
-    void executeGetNbrs(const json& workload, json& result, int taskIndex, int totalTasks) {
-        const auto& parameters = workload.at("parameters");
-        auto vertexIds = parameters.at("ids").get<std::vector<int64_t>>();
-        std::string direction = parameters.at("direction").get<std::string>();
-        std::vector<int> batchSizes = workload.at("batch_sizes").get<std::vector<int>>();
-
-        json batchResults = json::array();
-
-        for (int batchSize : batchSizes) {
-            // Send subtask start callback
-            std::string subtaskName = "GET_NBRS (batch_size=" + std::to_string(batchSize) + ")";
-            int numOps = vertexIds.size();
-            progressCallback_->sendProgressCallback("subtask_start", subtaskName, "",
-                                                   "", -1.0, taskIndex, totalTasks,
-                                                   numOps, -1, -1, numOps);
-
-            // Convert origin IDs to system IDs
-            std::vector<std::any> systemIds;
-            for (int64_t originId : vertexIds) {
-                systemIds.push_back(executor_->getSystemId(originId));
-            }
-
-            auto startTime = std::chrono::high_resolution_clock::now();
-            auto latencies = executor_->getNbrs(direction, systemIds, batchSize);
-            auto endTime = std::chrono::high_resolution_clock::now();
-            double duration = std::chrono::duration<double>(endTime - startTime).count();
-
-            double avgLatency = 0.0;
-            for (double lat : latencies) {
-                avgLatency += lat;
-            }
-            avgLatency /= latencies.size();
-
-            json batchResult;
-            batchResult["batch_size"] = batchSize;
-            batchResult["latency_us"] = avgLatency;
-            batchResult["validOpsCount"] = vertexIds.size();
-            batchResult["filteredOpsCount"] = 0;
-            batchResult["errorCount"] = 0;
-            batchResult["originalOpsCount"] = vertexIds.size();
-            batchResult["status"] = "success";
-
-            batchResults.push_back(batchResult);
-
-            // Send subtask complete callback
-            progressCallback_->sendProgressCallback("subtask_complete", subtaskName, "",
-                                                   "success", duration, taskIndex, totalTasks,
-                                                   (int)vertexIds.size(), (int)vertexIds.size(), 0);
-        }
-
-        result["batch_results"] = batchResults;
-        result["status"] = "success";
-    }
-
+    /**
+     * Execute a task with automatic restore before each batch size.
+     * Similar to Java's transactionalExecute method.
+     *
+     * @param workload Workload JSON containing task_type and batch_sizes
+     * @param result Result JSON to populate
+     * @param taskIndex Current task index
+     * @param totalTasks Total number of tasks
+     * @param numOps Number of operations for this task
+     * @param taskFunc Function that executes the actual task for a given batch size
+     */
     template<typename Func>
-    void executeBatchTask(const json& workload, json& result, int taskIndex, int totalTasks, Func taskFunc) {
-        int opsCount = workload["ops_count"];
+    void executeBatchOperation(const json& workload, json& result, int taskIndex, int totalTasks,
+                         int numOps, Func taskFunc) {
         std::vector<int> batchSizes = workload.at("batch_sizes").get<std::vector<int>>();
-
         json batchResults = json::array();
-
         std::string taskType = workload.at("task_type").get<std::string>();
 
         for (int batchSize : batchSizes) {
+            // Restore graph to clean state before executing workload
+            try {
+                progressCallback_->sendProgressCallback("restore_start", "RESTORE", "", "", -1.0, taskIndex, totalTasks);
+                executor_->restoreGraph();
+                progressCallback_->sendProgressCallback("restore_complete", "RESTORE", "", "success", -1.0, taskIndex, totalTasks);
+            } catch (const std::exception& e) {
+                progressCallback_->sendProgressCallback("restore_complete", "RESTORE", "", "failed", -1.0, taskIndex, totalTasks);
+                std::cerr << "Warning: Failed to restore graph: " << e.what() << std::endl;
+            }
+
             // Send subtask start callback
             std::string subtaskName = taskType + " (batch_size=" + std::to_string(batchSize) + ")";
             progressCallback_->sendProgressCallback("subtask_start", subtaskName, "",
                                                    "", -1.0, taskIndex, totalTasks,
-                                                   opsCount, -1, -1, opsCount);
+                                                   numOps, -1, -1, numOps);
 
             auto startTime = std::chrono::high_resolution_clock::now();
-            auto latencies = taskFunc(opsCount, batchSize);
+            auto latencies = taskFunc(batchSize);
             auto endTime = std::chrono::high_resolution_clock::now();
             double duration = std::chrono::duration<double>(endTime - startTime).count();
 
@@ -443,10 +275,10 @@ private:
             json batchResult;
             batchResult["batch_size"] = batchSize;
             batchResult["latency_us"] = avgLatency;
-            batchResult["validOpsCount"] = opsCount;
+            batchResult["validOpsCount"] = numOps;
             batchResult["filteredOpsCount"] = 0;
             batchResult["errorCount"] = 0;
-            batchResult["originalOpsCount"] = opsCount;
+            batchResult["originalOpsCount"] = numOps;
             batchResult["status"] = "success";
 
             batchResults.push_back(batchResult);
@@ -454,7 +286,7 @@ private:
             // Send subtask complete callback
             progressCallback_->sendProgressCallback("subtask_complete", subtaskName, "",
                                                    "success", duration, taskIndex, totalTasks,
-                                                   opsCount, opsCount, 0);
+                                                   numOps, numOps, 0);
         }
 
         result["batch_results"] = batchResults;
