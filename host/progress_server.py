@@ -122,7 +122,7 @@ class ProgressHandler(BaseHTTPRequestHandler):
             if filtered_ops and filtered_ops > 0:
                 msg += f" [{valid_ops}/{original_ops} valid ops, {filtered_ops} filtered]"
             else:
-                msg += f" [{valid_ops} ops]"
+                msg += f" [{valid_ops} valid ops / {original_ops} total ops]"
             msg += " (latency is for valid ops only)"
 
         print(msg)
@@ -195,14 +195,18 @@ class ProgressServer:
 
     def start(self):
         """Start the progress server in a background thread"""
-        try:
-            self.server = HTTPServer(('0.0.0.0', self.port), ProgressHandler)
-            self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
-            self.thread.start()
-            print(f"📡 Progress server started on port {self.port}")
-        except Exception as e:
-            print(f"⚠️  Failed to start progress server: {e}")
-            self.server = None
+        for port in range(self.port, self.port + 10):
+            try:
+                self.server = HTTPServer(('0.0.0.0', port), ProgressHandler)
+                self.port = port
+                self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+                self.thread.start()
+                print(f"📡 Progress server started on port {self.port}")
+                return
+            except OSError:
+                continue
+        print(f"⚠️  Failed to start progress server: no available port in range {self.port}-{self.port + 9}")
+        self.server = None
 
     def stop(self):
         """Stop the progress server"""

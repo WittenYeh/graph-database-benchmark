@@ -5,14 +5,16 @@ import com.graphbench.api.PropertyBenchmarkExecutor;
 import com.graphbench.workload.*;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.structure.*;
-import org.janusgraph.core.PropertyKey;
-import org.janusgraph.core.schema.JanusGraphManagement;
 
 import java.util.*;
 
 /**
  * JanusGraph property benchmark executor.
  * Loads graph with all CSV properties stored on vertices/edges, creates indexes dynamically.
+ *
+ * In JanusGraph, when PropertyKey and Index are created in the same management transaction
+ * on an empty graph, the index transitions directly to ENABLED state after commit.
+ * This allows data insertion to automatically populate the index without manual enabling.
  */
 public class JanusGraphPropertyBenchmarkExecutor extends JanusGraphBenchmarkExecutor
         implements PropertyBenchmarkExecutor {
@@ -22,42 +24,17 @@ public class JanusGraphPropertyBenchmarkExecutor extends JanusGraphBenchmarkExec
 
     @Override
     public Map<String, Object> loadGraph(String datasetPath) throws Exception {
-        JanusGraphGraphLoader loader = new JanusGraphGraphLoader(g, progressCallback, true);
+        // Read CSV headers first so we can create indexes before loading data.
+        CsvGraphReader.CsvMetadata meta = CsvGraphReader.readHeaders(datasetPath);
+
+        // Create loader and indexes
+        JanusGraphGraphLoader loader = new JanusGraphGraphLoader(graph, g, progressCallback, true);
+        loader.createPropertyIndexes(meta);
+
+        // Load graph data — indexes are now ENABLED and will be populated automatically.
         Map<String, Object> result = loader.load(datasetPath);
         nodeIdsMap = loader.getNodeIdsMap();
-        createPropertyIndexes(loader.getMetadata());
         return result;
-    }
-
-    private void createPropertyIndexes(CsvGraphReader.CsvMetadata metadata) {
-        JanusGraphManagement mgmt = graph.openManagement();
-        try {
-            for (String prop : metadata.getNodePropertyHeaders()) {
-                progressCallback.sendLogMessage("Creating node property index: " + prop, "INFO");
-                PropertyKey key = mgmt.getPropertyKey(prop);
-                if (key == null) {
-                    key = mgmt.makePropertyKey(prop).dataType(String.class).make();
-                }
-                if (!mgmt.containsGraphIndex("node_" + prop + "_idx")) {
-                    mgmt.buildIndex("node_" + prop + "_idx", Vertex.class).addKey(key).buildCompositeIndex();
-                }
-            }
-            for (String prop : metadata.getEdgePropertyHeaders()) {
-                progressCallback.sendLogMessage("Creating edge property index: " + prop, "INFO");
-                PropertyKey key = mgmt.getPropertyKey(prop);
-                if (key == null) {
-                    key = mgmt.makePropertyKey(prop).dataType(String.class).make();
-                }
-                if (!mgmt.containsGraphIndex("edge_" + prop + "_idx")) {
-                    mgmt.buildIndex("edge_" + prop + "_idx", Edge.class).addKey(key).buildCompositeIndex();
-                }
-            }
-            mgmt.commit();
-            progressCallback.sendLogMessage("All property indexes created", "INFO");
-        } catch (Exception e) {
-            progressCallback.sendLogMessage("Failed to create property indexes: " + e.getMessage(), "WARNING");
-            mgmt.rollback();
-        }
     }
 
     // --- Property operations ---
@@ -90,17 +67,15 @@ public class JanusGraphPropertyBenchmarkExecutor extends JanusGraphBenchmarkExec
     @Override
     public List<Double> getVertexByProperty(List<GetVertexByPropertyParams.PropertyQuery> queries, int batchSize) {
         return transactionalExecute(queries, query -> {
-            g.V().hasLabel(NODE_LABEL)
-                .has(query.getKey(), query.getValue())
+            g.V().has(query.getKey(), query.getValue())
                 .forEachRemaining(blackhole::consume);
         }, batchSize);
     }
 
     @Override
-    public List<Double> getEdgeByProperty(String label, List<GetEdgeByPropertyParams.PropertyQuery> queries, int batchSize) {
+    public List<Double> getEdgeByProperty(List<GetEdgeByPropertyParams.PropertyQuery> queries, int batchSize) {
         return transactionalExecute(queries, query -> {
-            g.E().hasLabel(label)
-                .has(query.getKey(), query.getValue())
+            g.E().has(query.getKey(), query.getValue())
                 .forEachRemaining(blackhole::consume);
         }, batchSize);
     }

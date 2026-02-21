@@ -2,11 +2,15 @@ package com.graphbench.api;
 
 import com.univocity.parsers.csv.CsvParser;
 import com.univocity.parsers.csv.CsvParserSettings;
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 
 import java.io.File;
+import java.io.FileReader;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.HashMap;
 
 /**
  * Utility for reading graph CSV files (nodes.csv, edges.csv) using univocity-parsers.
@@ -20,10 +24,16 @@ public class CsvGraphReader {
     public static class CsvMetadata {
         private final String[] nodeHeaders;
         private final String[] edgeHeaders;
+        private final Map<String, Class<?>> nodePropertyTypes;
+        private final Map<String, Class<?>> edgePropertyTypes;
 
-        public CsvMetadata(String[] nodeHeaders, String[] edgeHeaders) {
+        public CsvMetadata(String[] nodeHeaders, String[] edgeHeaders,
+                           Map<String, Class<?>> nodePropertyTypes,
+                           Map<String, Class<?>> edgePropertyTypes) {
             this.nodeHeaders = nodeHeaders;
             this.edgeHeaders = edgeHeaders;
+            this.nodePropertyTypes = nodePropertyTypes != null ? nodePropertyTypes : new HashMap<>();
+            this.edgePropertyTypes = edgePropertyTypes != null ? edgePropertyTypes : new HashMap<>();
         }
 
         /** All column names from nodes.csv */
@@ -47,6 +57,16 @@ public class CsvGraphReader {
             System.arraycopy(edgeHeaders, 2, props, 0, props.length);
             return props;
         }
+
+        /** Inferred Java type for a node property column. Defaults to String.class if unknown. */
+        public Class<?> getNodePropertyType(String column) {
+            return nodePropertyTypes.getOrDefault(column, String.class);
+        }
+
+        /** Inferred Java type for an edge property column. Defaults to String.class if unknown. */
+        public Class<?> getEdgePropertyType(String column) {
+            return edgePropertyTypes.getOrDefault(column, String.class);
+        }
     }
 
     /**
@@ -54,7 +74,7 @@ public class CsvGraphReader {
      * Much faster than read() when only header information is needed.
      *
      * @param datasetDir Path to the dataset directory
-     * @return CsvMetadata with header information
+     * @return CsvMetadata with header information and type metadata
      */
     public static CsvMetadata readHeaders(String datasetDir) {
         CsvParserSettings settings = new CsvParserSettings();
@@ -74,7 +94,63 @@ public class CsvGraphReader {
         String[] edgeHeaders = edgeParser.getRecordMetadata().headers();
         edgeParser.stopParsing();
 
-        return new CsvMetadata(nodeHeaders, edgeHeaders);
+        // Load type metadata
+        Map<String, Class<?>>[] typeMaps = readPropertyTypes(datasetDir);
+
+        return new CsvMetadata(nodeHeaders, edgeHeaders, typeMaps[0], typeMaps[1]);
+    }
+
+    /**
+     * Read property type metadata from type_meta.json.
+     *
+     * @param datasetDir Path to the dataset directory
+     * @return Array of two maps: [nodePropertyTypes, edgePropertyTypes]
+     */
+    private static Map<String, Class<?>>[] readPropertyTypes(String datasetDir) {
+        Map<String, Class<?>> nodePropertyTypes = new HashMap<>();
+        Map<String, Class<?>> edgePropertyTypes = new HashMap<>();
+
+        File typeMetaFile = new File(datasetDir, "type_meta.json");
+        if (typeMetaFile.exists()) {
+            try (FileReader reader = new FileReader(typeMetaFile)) {
+                Gson gson = new Gson();
+                JsonObject meta = gson.fromJson(reader, JsonObject.class);
+
+                if (meta.has("node_properties")) {
+                    JsonObject nodeProps = meta.getAsJsonObject("node_properties");
+                    for (String key : nodeProps.keySet()) {
+                        String typeStr = nodeProps.get(key).getAsString();
+                        nodePropertyTypes.put(key, typeStringToClass(typeStr));
+                    }
+                }
+
+                if (meta.has("edge_properties")) {
+                    JsonObject edgeProps = meta.getAsJsonObject("edge_properties");
+                    for (String key : edgeProps.keySet()) {
+                        String typeStr = edgeProps.get(key).getAsString();
+                        edgePropertyTypes.put(key, typeStringToClass(typeStr));
+                    }
+                }
+            } catch (Exception e) {
+                // Silently fall back to String for all properties if type_meta.json is invalid
+            }
+        }
+
+        return new Map[]{nodePropertyTypes, edgePropertyTypes};
+    }
+
+    /**
+     * Convert type string from type_meta.json to Java Class.
+     */
+    private static Class<?> typeStringToClass(String typeStr) {
+        switch (typeStr.toLowerCase()) {
+            case "integer": return Integer.class;
+            case "long": return Long.class;
+            case "float": return Float.class;
+            case "double": return Double.class;
+            case "boolean": return Boolean.class;
+            default: return String.class;
+        }
     }
 
     /**
@@ -122,7 +198,10 @@ public class CsvGraphReader {
         }
         edgeParser.stopParsing();
 
-        return new CsvMetadata(nodeHeaders, edgeHeaders);
+        // Load type metadata
+        Map<String, Class<?>>[] typeMaps = readPropertyTypes(datasetDir);
+
+        return new CsvMetadata(nodeHeaders, edgeHeaders, typeMaps[0], typeMaps[1]);
     }
 
     /**

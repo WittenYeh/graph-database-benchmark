@@ -3,9 +3,9 @@ FROM maven:3.9-eclipse-temurin-17 AS builder
 WORKDIR /app
 
 # Copy and build common module first
-COPY common/pom.xml ./common/pom.xml
-COPY common/src ./common/src
-RUN cd common && mvn clean install -DskipTests
+COPY common-java/pom.xml ./common-java/pom.xml
+COPY common-java/src ./common-java/src
+RUN cd common-java && mvn clean install -DskipTests
 
 # Copy pom.xml and download dependencies
 COPY docker/janusgraph/pom.xml .

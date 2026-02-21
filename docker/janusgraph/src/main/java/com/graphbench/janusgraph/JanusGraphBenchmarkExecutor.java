@@ -88,7 +88,7 @@ public class JanusGraphBenchmarkExecutor implements BenchmarkExecutor {
 
     @Override
     public Map<String, Object> loadGraph(String datasetPath) throws Exception {
-        JanusGraphGraphLoader loader = new JanusGraphGraphLoader(g, progressCallback, false);
+        JanusGraphGraphLoader loader = new JanusGraphGraphLoader(graph, g, progressCallback, false);
         Map<String, Object> result = loader.load(datasetPath);
         nodeIdsMap = loader.getNodeIdsMap();
         return result;

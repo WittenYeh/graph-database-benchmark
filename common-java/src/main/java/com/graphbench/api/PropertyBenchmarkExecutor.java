@@ -37,12 +37,11 @@ public interface PropertyBenchmarkExecutor extends BenchmarkExecutor {
 
     /**
      * Get edges by property using native API with specified batch size.
-     * @param label Edge label
      * @param queries List of property queries (key, value)
      * @param batchSize Number of operations per transaction (1 = no batching)
      * @return List of latencies in microseconds for each batch
      */
-    List<Double> getEdgeByProperty(String label, List<GetEdgeByPropertyParams.PropertyQuery> queries, int batchSize);
+    List<Double> getEdgeByProperty(List<GetEdgeByPropertyParams.PropertyQuery> queries, int batchSize);
 
     /**
      * Update vertex properties using native API (default batch size = 1).
@@ -68,7 +67,7 @@ public interface PropertyBenchmarkExecutor extends BenchmarkExecutor {
     /**
      * Get edges by property using native API (default batch size = 1).
      */
-    default List<Double> getEdgeByProperty(String label, List<GetEdgeByPropertyParams.PropertyQuery> queries) {
-        return getEdgeByProperty(label, queries, 1);
+    default List<Double> getEdgeByProperty(List<GetEdgeByPropertyParams.PropertyQuery> queries) {
+        return getEdgeByProperty(queries, 1);
     }
 }

@@ -1,12 +1,10 @@
 package com.graphbench.neo4j;
 
-import com.graphbench.api.CsvGraphReader;
 import com.graphbench.api.PropertyBenchmarkExecutor;
 import com.graphbench.workload.*;
 import org.neo4j.graphdb.*;
 
 import java.util.*;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Neo4j property benchmark executor.
@@ -23,36 +21,8 @@ public class Neo4jPropertyBenchmarkExecutor extends Neo4jBenchmarkExecutor
         Neo4jGraphLoader loader = new Neo4jGraphLoader(db, progressCallback, true);
         Map<String, Object> result = loader.load(datasetPath);
         nodeIdsMap = loader.getNodeIdsMap();
-        createPropertyIndexes(loader.getMetadata());
+        loader.createPropertyIndexes(loader.getMetadata());
         return result;
-    }
-
-    private void createPropertyIndexes(CsvGraphReader.CsvMetadata metadata) {
-        for (String prop : metadata.getNodePropertyHeaders()) {
-            progressCallback.sendLogMessage("Creating node property index: " + prop, "INFO");
-            try (Transaction tx = db.beginTx()) {
-                tx.execute("CREATE INDEX node_" + prop + "_idx IF NOT EXISTS FOR (n:" + NODE_LABEL + ") ON (n." + prop + ")");
-                tx.commit();
-            } catch (Exception e) {
-                progressCallback.sendLogMessage("Failed to create node index for " + prop + ": " + e.getMessage(), "WARNING");
-            }
-        }
-        for (String prop : metadata.getEdgePropertyHeaders()) {
-            progressCallback.sendLogMessage("Creating edge property index: " + prop, "INFO");
-            try (Transaction tx = db.beginTx()) {
-                tx.execute("CREATE INDEX edge_" + prop + "_idx IF NOT EXISTS FOR ()-[r:MyEdge]-() ON (r." + prop + ")");
-                tx.commit();
-            } catch (Exception e) {
-                progressCallback.sendLogMessage("Failed to create edge index for " + prop + ": " + e.getMessage(), "WARNING");
-            }
-        }
-        try (Transaction tx = db.beginTx()) {
-            tx.schema().awaitIndexesOnline(30, TimeUnit.SECONDS);
-            tx.commit();
-            progressCallback.sendLogMessage("All property indexes online", "INFO");
-        } catch (Exception e) {
-            progressCallback.sendLogMessage("Timeout waiting for indexes: " + e.getMessage(), "WARNING");
-        }
     }
 
     // --- Property operations ---
@@ -98,12 +68,14 @@ public class Neo4jPropertyBenchmarkExecutor extends Neo4jBenchmarkExecutor
     }
 
     @Override
-    public List<Double> getEdgeByProperty(String label, List<GetEdgeByPropertyParams.PropertyQuery> queries, int batchSize) {
-        RelationshipType relType = RelationshipType.withName(label);
+    public List<Double> getEdgeByProperty(List<GetEdgeByPropertyParams.PropertyQuery> queries, int batchSize) {
         return transactionalExecute(queries, (tx, query) -> {
-            try (ResourceIterator<Relationship> rels = tx.findRelationships(relType, query.getKey(), query.getValue())) {
-                rels.forEachRemaining(blackhole::consume);
-            }
+            tx.getAllRelationships().forEach(rel -> {
+                Object val = rel.getProperty(query.getKey(), null);
+                if (val != null && val.equals(query.getValue())) {
+                    blackhole.consume(rel);
+                }
+            });
         }, batchSize);
     }
 }

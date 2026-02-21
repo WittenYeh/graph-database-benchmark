@@ -188,6 +188,9 @@ public class WorkloadDispatcher {
                     batchSizes = Arrays.asList(1);
                 }
 
+                // Pre-process parameters once (type conversion, parsing) before all batch size tests
+                Map<String, Object> preprocessedParams = preprocessParameters(taskType, parameters);
+
                 // Execute task for each batch size
                 List<Map<String, Object>> batchResults = new ArrayList<>();
 
@@ -203,7 +206,7 @@ public class WorkloadDispatcher {
 
                     Map<String, Object> subtaskResult = new HashMap<>();
                     long taskStartTime = System.nanoTime();
-                    executeTask(taskType, parameters, subtaskResult, batchSize);
+                    executeTask(taskType, preprocessedParams, subtaskResult, batchSize);
                     long taskEndTime = System.nanoTime();
                     double taskDuration = (taskEndTime - taskStartTime) / 1_000_000_000.0;
 
@@ -256,7 +259,43 @@ public class WorkloadDispatcher {
     }
 
     /**
+     * Pre-process parameters before timing starts.
+     * This includes type conversion and parsing that should not be counted in benchmark timing.
+     */
+    private Map<String, Object> preprocessParameters(String taskType, Map<String, Object> parameters) {
+        Map<String, Object> preprocessed = new HashMap<>(parameters);
+        switch (taskType) {
+            case "REMOVE_VERTEX":
+                preprocessed.put("_parsed_ids", parseIdList(parameters.get("ids")));
+                break;
+            case "ADD_EDGE":
+                preprocessed.put("_parsed_pairs", parseEdgePairs((List<Map<String, Object>>) parameters.get("pairs")));
+                break;
+            case "REMOVE_EDGE":
+                preprocessed.put("_parsed_pairs", parseRemoveEdgePairs((List<Map<String, Object>>) parameters.get("pairs")));
+                break;
+            case "GET_NBRS":
+                preprocessed.put("_parsed_ids", parseIdList(parameters.get("ids")));
+                break;
+            case "UPDATE_VERTEX_PROPERTY":
+                preprocessed.put("_parsed_updates", parseVertexUpdates((List<Map<String, Object>>) parameters.get("updates")));
+                break;
+            case "UPDATE_EDGE_PROPERTY":
+                preprocessed.put("_parsed_updates", parseEdgeUpdates((List<Map<String, Object>>) parameters.get("updates")));
+                break;
+            case "GET_VERTEX_BY_PROPERTY":
+                preprocessed.put("_parsed_queries", parseVertexPropertyQueries((List<Map<String, Object>>) parameters.get("queries")));
+                break;
+            case "GET_EDGE_BY_PROPERTY":
+                preprocessed.put("_parsed_queries", parseEdgePropertyQueries((List<Map<String, Object>>) parameters.get("queries")));
+                break;
+        }
+        return preprocessed;
+    }
+
+    /**
      * Execute a task with specified batch size.
+     * Parameters should already be preprocessed.
      */
     private void executeTask(String taskType, Map<String, Object> parameters, Map<String, Object> result, int batchSize) {
         List<Double> latencies = null;
@@ -273,7 +312,7 @@ public class WorkloadDispatcher {
                 break;
 
             case "REMOVE_VERTEX":
-                List<Object> removeVertexSystemIds = parseIdList(parameters.get("ids"));
+                List<Object> removeVertexSystemIds = (List<Object>) parameters.get("_parsed_ids");
                 originalOpsCount = ((List<?>) parameters.get("ids")).size();
                 validOpsCount = removeVertexSystemIds.size();
                 latencies = executor.removeVertex(removeVertexSystemIds, batchSize);
@@ -281,8 +320,7 @@ public class WorkloadDispatcher {
 
             case "ADD_EDGE":
                 String addEdgeLabel = (String) parameters.get("label");
-                List<AddEdgeParams.EdgePair> addEdgePairs =
-                    parseEdgePairs((List<Map<String, Object>>) parameters.get("pairs"));
+                List<AddEdgeParams.EdgePair> addEdgePairs = (List<AddEdgeParams.EdgePair>) parameters.get("_parsed_pairs");
                 originalOpsCount = ((List<?>) parameters.get("pairs")).size();
                 validOpsCount = addEdgePairs.size();
                 latencies = executor.addEdge(addEdgeLabel, addEdgePairs, batchSize);
@@ -290,8 +328,7 @@ public class WorkloadDispatcher {
 
             case "REMOVE_EDGE":
                 String removeEdgeLabel = (String) parameters.get("label");
-                List<RemoveEdgeParams.EdgePair> removeEdgePairs =
-                    parseRemoveEdgePairs((List<Map<String, Object>>) parameters.get("pairs"));
+                List<RemoveEdgeParams.EdgePair> removeEdgePairs = (List<RemoveEdgeParams.EdgePair>) parameters.get("_parsed_pairs");
                 originalOpsCount = ((List<?>) parameters.get("pairs")).size();
                 validOpsCount = removeEdgePairs.size();
                 latencies = executor.removeEdge(removeEdgeLabel, removeEdgePairs, batchSize);
@@ -299,7 +336,7 @@ public class WorkloadDispatcher {
 
             case "GET_NBRS":
                 String direction = (String) parameters.get("direction");
-                List<Object> nbrsSystemIds = parseIdList(parameters.get("ids"));
+                List<Object> nbrsSystemIds = (List<Object>) parameters.get("_parsed_ids");
                 originalOpsCount = ((List<?>) parameters.get("ids")).size();
                 validOpsCount = nbrsSystemIds.size();
                 latencies = executor.getNbrs(direction, nbrsSystemIds, batchSize);
@@ -308,7 +345,7 @@ public class WorkloadDispatcher {
             case "UPDATE_VERTEX_PROPERTY": {
                 PropertyBenchmarkExecutor propExec = requirePropertyExecutor();
                 List<UpdateVertexPropertyParams.VertexUpdate> vertexUpdates =
-                    parseVertexUpdates((List<Map<String, Object>>) parameters.get("updates"));
+                    (List<UpdateVertexPropertyParams.VertexUpdate>) parameters.get("_parsed_updates");
                 originalOpsCount = ((List<?>) parameters.get("updates")).size();
                 validOpsCount = vertexUpdates.size();
                 latencies = propExec.updateVertexProperty(vertexUpdates, batchSize);
@@ -319,7 +356,7 @@ public class WorkloadDispatcher {
                 PropertyBenchmarkExecutor propExec = requirePropertyExecutor();
                 String updateEdgeLabel = (String) parameters.get("label");
                 List<UpdateEdgePropertyParams.EdgeUpdate> edgeUpdates =
-                    parseEdgeUpdates((List<Map<String, Object>>) parameters.get("updates"));
+                    (List<UpdateEdgePropertyParams.EdgeUpdate>) parameters.get("_parsed_updates");
                 originalOpsCount = ((List<?>) parameters.get("updates")).size();
                 validOpsCount = edgeUpdates.size();
                 latencies = propExec.updateEdgeProperty(updateEdgeLabel, edgeUpdates, batchSize);
@@ -329,7 +366,7 @@ public class WorkloadDispatcher {
             case "GET_VERTEX_BY_PROPERTY": {
                 PropertyBenchmarkExecutor propExec = requirePropertyExecutor();
                 List<GetVertexByPropertyParams.PropertyQuery> vertexQueries =
-                    parseVertexPropertyQueries((List<Map<String, Object>>) parameters.get("queries"));
+                    (List<GetVertexByPropertyParams.PropertyQuery>) parameters.get("_parsed_queries");
                 originalOpsCount = ((List<?>) parameters.get("queries")).size();
                 validOpsCount = vertexQueries.size();
                 latencies = propExec.getVertexByProperty(vertexQueries, batchSize);
@@ -338,12 +375,11 @@ public class WorkloadDispatcher {
 
             case "GET_EDGE_BY_PROPERTY": {
                 PropertyBenchmarkExecutor propExec = requirePropertyExecutor();
-                String getEdgeLabel = (String) parameters.get("label");
                 List<GetEdgeByPropertyParams.PropertyQuery> edgeQueries =
-                    parseEdgePropertyQueries((List<Map<String, Object>>) parameters.get("queries"));
+                    (List<GetEdgeByPropertyParams.PropertyQuery>) parameters.get("_parsed_queries");
                 originalOpsCount = ((List<?>) parameters.get("queries")).size();
                 validOpsCount = edgeQueries.size();
-                latencies = propExec.getEdgeByProperty(getEdgeLabel, edgeQueries, batchSize);
+                latencies = propExec.getEdgeByProperty(edgeQueries, batchSize);
                 break;
             }
 
@@ -464,8 +500,17 @@ public class WorkloadDispatcher {
         List<GetVertexByPropertyParams.PropertyQuery> result = new ArrayList<>();
         for (Map<String, Object> query : queries) {
             GetVertexByPropertyParams.PropertyQuery pq = new GetVertexByPropertyParams.PropertyQuery();
-            pq.setKey((String) query.get("key"));
-            pq.setValue(query.get("value"));
+            String key = (String) query.get("key");
+            Object value = query.get("value");
+
+            // Convert value to the correct type based on metadata
+            if (csvMetadata != null && value != null) {
+                Class<?> targetType = csvMetadata.getNodePropertyType(key);
+                value = TypeConverter.convertQueryValue(value, targetType);
+            }
+
+            pq.setKey(key);
+            pq.setValue(value);
             result.add(pq);
         }
         return result;
@@ -475,8 +520,17 @@ public class WorkloadDispatcher {
         List<GetEdgeByPropertyParams.PropertyQuery> result = new ArrayList<>();
         for (Map<String, Object> query : queries) {
             GetEdgeByPropertyParams.PropertyQuery pq = new GetEdgeByPropertyParams.PropertyQuery();
-            pq.setKey((String) query.get("key"));
-            pq.setValue(query.get("value"));
+            String key = (String) query.get("key");
+            Object value = query.get("value");
+
+            // Convert value to the correct type based on metadata
+            if (csvMetadata != null && value != null) {
+                Class<?> targetType = csvMetadata.getEdgePropertyType(key);
+                value = TypeConverter.convertQueryValue(value, targetType);
+            }
+
+            pq.setKey(key);
+            pq.setValue(value);
             result.add(pq);
         }
         return result;

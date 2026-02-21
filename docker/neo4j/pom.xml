@@ -20,7 +20,7 @@
         <!-- Common API -->
         <dependency>
             <groupId>com.graphbench</groupId>
-            <artifactId>common</artifactId>
+            <artifactId>common-java</artifactId>
             <version>1.0-SNAPSHOT</version>
         </dependency>
 
