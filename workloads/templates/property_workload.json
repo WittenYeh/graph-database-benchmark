@@ -2,7 +2,7 @@
   "name": "property_workload",
   "mode": "property",
   "server_config": {
-    "threads": 8
+    "threads": 1
   },
   "tasks": [
     { "name": "load_graph" },

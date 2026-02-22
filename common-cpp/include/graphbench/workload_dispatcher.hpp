@@ -141,8 +141,11 @@ private:
         result["ops_count"] = opsCount;
 
         // Send task start callback
-        progressCallback_->sendProgressCallback("task_start", taskType, workloadFile.filename().string(),
-                                               "", -1.0, taskIndex, totalTasks);
+        progressCallback_->sendProgressCallback(
+            ProgressEvent("task_start", taskType)
+                .setWorkloadFile(workloadFile.filename().string())
+                .setTaskProgress(taskIndex, totalTasks)
+        );
 
         try {
             auto startTime = std::chrono::high_resolution_clock::now();
@@ -155,31 +158,31 @@ private:
 
                 if (taskType == "ADD_VERTEX") {
                     auto params = parameterParser_.parseAddVertexParameters(parameters);
-                    executeVaryBatchSizeBench(workload, result, taskIndex, totalTasks, params.count,
+                    executeVaryBatchSizeBench(workload, result, taskIndex, totalTasks, params.count, params.count,
                         [this, &params](int batchSize) {
                             return executor_->addVertex(params.count, batchSize);
                         });
                 } else if (taskType == "ADD_EDGE") {
                     auto params = parameterParser_.parseAddEdgeParameters(parameters);
-                    executeVaryBatchSizeBench(workload, result, taskIndex, totalTasks, params.originalCount,
+                    executeVaryBatchSizeBench(workload, result, taskIndex, totalTasks, params.originalCount, params.pairs.size(),
                         [this, &params](int batchSize) {
                             return executor_->addEdge(params.label, params.pairs, batchSize);
                         });
                 } else if (taskType == "REMOVE_VERTEX") {
                     auto params = parameterParser_.parseRemoveVertexParameters(parameters);
-                    executeVaryBatchSizeBench(workload, result, taskIndex, totalTasks, params.originalCount,
+                    executeVaryBatchSizeBench(workload, result, taskIndex, totalTasks, params.originalCount, params.systemIds.size(),
                         [this, &params](int batchSize) {
                             return executor_->removeVertex(params.systemIds, batchSize);
                         });
                 } else if (taskType == "REMOVE_EDGE") {
                     auto params = parameterParser_.parseRemoveEdgeParameters(parameters);
-                    executeVaryBatchSizeBench(workload, result, taskIndex, totalTasks, params.originalCount,
+                    executeVaryBatchSizeBench(workload, result, taskIndex, totalTasks, params.originalCount, params.pairs.size(),
                         [this, &params](int batchSize) {
                             return executor_->removeEdge(params.label, params.pairs, batchSize);
                         });
                 } else if (taskType == "GET_NBRS") {
                     auto params = parameterParser_.parseGetNbrsParameters(parameters);
-                    executeVaryBatchSizeBench(workload, result, taskIndex, totalTasks, params.originalCount,
+                    executeVaryBatchSizeBench(workload, result, taskIndex, totalTasks, params.originalCount, params.systemIds.size(),
                         [this, &params](int batchSize) {
                             return executor_->getNbrs(params.direction, params.systemIds, batchSize);
                         });
@@ -194,16 +197,25 @@ private:
             result["durationSeconds"] = duration;
 
             // Send task complete callback
-            progressCallback_->sendProgressCallback("task_complete", taskType, workloadFile.filename().string(),
-                                                   "success", duration, taskIndex, totalTasks);
+            progressCallback_->sendProgressCallback(
+                ProgressEvent("task_complete", taskType)
+                    .setWorkloadFile(workloadFile.filename().string())
+                    .setStatus("success")
+                    .setDuration(duration)
+                    .setTaskProgress(taskIndex, totalTasks)
+            );
 
         } catch (const std::exception& e) {
             result["status"] = "failed";
             result["error"] = e.what();
 
             // Send task complete callback with error
-            progressCallback_->sendProgressCallback("task_complete", taskType, workloadFile.filename().string(),
-                                                   "failed", -1.0, taskIndex, totalTasks);
+            progressCallback_->sendProgressCallback(
+                ProgressEvent("task_complete", taskType)
+                    .setWorkloadFile(workloadFile.filename().string())
+                    .setStatus("failed")
+                    .setTaskProgress(taskIndex, totalTasks)
+            );
         }
 
         return result;
@@ -217,11 +229,22 @@ private:
 
         // Create snapshot after loading graph
         try {
-            progressCallback_->sendProgressCallback("snapshot_start", "SNAPSHOT", "", "", -1.0, 0, 0);
+            progressCallback_->sendProgressCallback(
+                ProgressEvent("snapshot_start", "SNAPSHOT")
+                    .setTaskProgress(0, 0)
+            );
             executor_->snapGraph();
-            progressCallback_->sendProgressCallback("snapshot_complete", "SNAPSHOT", "", "success", -1.0, 0, 0);
+            progressCallback_->sendProgressCallback(
+                ProgressEvent("snapshot_complete", "SNAPSHOT")
+                    .setStatus("success")
+                    .setTaskProgress(0, 0)
+            );
         } catch (const std::exception& e) {
-            progressCallback_->sendProgressCallback("snapshot_complete", "SNAPSHOT", "", "failed", -1.0, 0, 0);
+            progressCallback_->sendProgressCallback(
+                ProgressEvent("snapshot_complete", "SNAPSHOT")
+                    .setStatus("failed")
+                    .setTaskProgress(0, 0)
+            );
             std::cerr << "Warning: Failed to create snapshot: " << e.what() << std::endl;
         }
     }
@@ -239,7 +262,7 @@ private:
      */
     template<typename Func>
     void executeVaryBatchSizeBench(const json& workload, json& result, int taskIndex, int totalTasks,
-                         int numOps, Func taskFunc) {
+                         int originalCount, int validCount, Func taskFunc) {
         std::vector<int> batchSizes = workload.at("batch_sizes").get<std::vector<int>>();
         json batchResults = json::array();
         std::string taskType = workload.at("task_type").get<std::string>();
@@ -247,19 +270,32 @@ private:
         for (int batchSize : batchSizes) {
             // Restore graph to clean state before executing workload
             try {
-                progressCallback_->sendProgressCallback("restore_start", "RESTORE", "", "", -1.0, taskIndex, totalTasks);
+                progressCallback_->sendProgressCallback(
+                    ProgressEvent("restore_start", "RESTORE")
+                        .setTaskProgress(taskIndex, totalTasks)
+                );
                 executor_->restoreGraph();
-                progressCallback_->sendProgressCallback("restore_complete", "RESTORE", "", "success", -1.0, taskIndex, totalTasks);
+                progressCallback_->sendProgressCallback(
+                    ProgressEvent("restore_complete", "RESTORE")
+                        .setStatus("success")
+                        .setTaskProgress(taskIndex, totalTasks)
+                );
             } catch (const std::exception& e) {
-                progressCallback_->sendProgressCallback("restore_complete", "RESTORE", "", "failed", -1.0, taskIndex, totalTasks);
+                progressCallback_->sendProgressCallback(
+                    ProgressEvent("restore_complete", "RESTORE")
+                        .setStatus("failed")
+                        .setTaskProgress(taskIndex, totalTasks)
+                );
                 std::cerr << "Warning: Failed to restore graph: " << e.what() << std::endl;
             }
 
             // Send subtask start callback
             std::string subtaskName = taskType + " (batch_size=" + std::to_string(batchSize) + ")";
-            progressCallback_->sendProgressCallback("subtask_start", subtaskName, "",
-                                                   "", -1.0, taskIndex, totalTasks,
-                                                   numOps, -1, -1, numOps);
+            progressCallback_->sendProgressCallback(
+                ProgressEvent("subtask_start", subtaskName)
+                    .setTaskProgress(taskIndex, totalTasks)
+                    .setNumOps(validCount)
+            );
 
             auto startTime = std::chrono::high_resolution_clock::now();
             auto latencies = taskFunc(batchSize);
@@ -275,18 +311,22 @@ private:
             json batchResult;
             batchResult["batch_size"] = batchSize;
             batchResult["latency_us"] = avgLatency;
-            batchResult["validOpsCount"] = numOps;
-            batchResult["filteredOpsCount"] = 0;
+            batchResult["validOpsCount"] = validCount;
+            batchResult["filteredOpsCount"] = originalCount - validCount;
             batchResult["errorCount"] = 0;
-            batchResult["originalOpsCount"] = numOps;
+            batchResult["originalOpsCount"] = originalCount;
             batchResult["status"] = "success";
 
             batchResults.push_back(batchResult);
 
             // Send subtask complete callback
-            progressCallback_->sendProgressCallback("subtask_complete", subtaskName, "",
-                                                   "success", duration, taskIndex, totalTasks,
-                                                   numOps, numOps, 0);
+            progressCallback_->sendProgressCallback(
+                ProgressEvent("subtask_complete", subtaskName)
+                    .setStatus("success")
+                    .setDuration(duration)
+                    .setTaskProgress(taskIndex, totalTasks)
+                    .setOpsCounts(originalCount, validCount, originalCount - validCount)
+            );
         }
 
         result["batch_results"] = batchResults;

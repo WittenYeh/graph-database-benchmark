@@ -2,7 +2,7 @@
   "name": "latency_bench",
   "mode": "structural",
   "server_config": {
-    "threads": 8
+    "threads": 1
   },
   "tasks": [
     { "name": "load_graph" },

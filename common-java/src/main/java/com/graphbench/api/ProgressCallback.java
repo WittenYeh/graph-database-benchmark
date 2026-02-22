@@ -20,30 +20,64 @@ public class ProgressCallback {
     }
 
     /**
-     * Send progress callback to host.
+     * Structured parameter object for progress events.
      */
-    public void sendProgressCallback(String event, String taskName, String workloadFile,
-                                     String status, Double durationSeconds, int taskIndex, int totalTasks) {
-        sendProgressCallback(event, taskName, workloadFile, status, durationSeconds, taskIndex, totalTasks, null, null, null, null);
+    public static class ProgressEvent {
+        public String event;
+        public String taskName;
+        public String workloadFile;
+        public String status;
+        public Double durationSeconds;
+        public int taskIndex;
+        public int totalTasks;
+        public Integer originalOpsCount;
+        public Integer validOpsCount;
+        public Integer filteredOpsCount;
+        public Integer numOps;
+
+        public ProgressEvent(String event, String taskName) {
+            this.event = event;
+            this.taskName = taskName;
+        }
+
+        public ProgressEvent workloadFile(String workloadFile) {
+            this.workloadFile = workloadFile;
+            return this;
+        }
+
+        public ProgressEvent status(String status) {
+            this.status = status;
+            return this;
+        }
+
+        public ProgressEvent duration(Double durationSeconds) {
+            this.durationSeconds = durationSeconds;
+            return this;
+        }
+
+        public ProgressEvent taskProgress(int taskIndex, int totalTasks) {
+            this.taskIndex = taskIndex;
+            this.totalTasks = totalTasks;
+            return this;
+        }
+
+        public ProgressEvent opsCounts(Integer originalOpsCount, Integer validOpsCount, Integer filteredOpsCount) {
+            this.originalOpsCount = originalOpsCount;
+            this.validOpsCount = validOpsCount;
+            this.filteredOpsCount = filteredOpsCount;
+            return this;
+        }
+
+        public ProgressEvent numOps(Integer numOps) {
+            this.numOps = numOps;
+            return this;
+        }
     }
 
     /**
-     * Send progress callback to host with operation counts.
+     * Send progress callback to host using structured event object.
      */
-    public void sendProgressCallback(String event, String taskName, String workloadFile,
-                                     String status, Double durationSeconds, int taskIndex, int totalTasks,
-                                     Integer originalOpsCount, Integer validOpsCount, Integer filteredOpsCount) {
-        sendProgressCallback(event, taskName, workloadFile, status, durationSeconds, taskIndex, totalTasks,
-                           originalOpsCount, validOpsCount, filteredOpsCount, null);
-    }
-
-    /**
-     * Send progress callback to host with operation counts and num_ops.
-     */
-    public void sendProgressCallback(String event, String taskName, String workloadFile,
-                                     String status, Double durationSeconds, int taskIndex, int totalTasks,
-                                     Integer originalOpsCount, Integer validOpsCount, Integer filteredOpsCount,
-                                     Integer numOps) {
+    public void sendProgressCallback(ProgressEvent event) {
         if (callbackUrl == null || callbackUrl.isEmpty()) {
             return;
         }
@@ -56,30 +90,30 @@ public class ProgressCallback {
             conn.setDoOutput(true);
 
             Map<String, Object> payload = new HashMap<>();
-            payload.put("event", event);
-            payload.put("task_name", taskName);
-            payload.put("task_index", taskIndex);
-            payload.put("total_tasks", totalTasks);
-            if (workloadFile != null) {
-                payload.put("workload_file", workloadFile);
+            payload.put("event", event.event);
+            payload.put("task_name", event.taskName);
+            payload.put("task_index", event.taskIndex);
+            payload.put("total_tasks", event.totalTasks);
+            if (event.workloadFile != null) {
+                payload.put("workload_file", event.workloadFile);
             }
-            if (status != null) {
-                payload.put("status", status);
+            if (event.status != null) {
+                payload.put("status", event.status);
             }
-            if (durationSeconds != null) {
-                payload.put("duration_seconds", durationSeconds);
+            if (event.durationSeconds != null) {
+                payload.put("duration_seconds", event.durationSeconds);
             }
-            if (originalOpsCount != null) {
-                payload.put("original_ops_count", originalOpsCount);
+            if (event.originalOpsCount != null) {
+                payload.put("original_ops_count", event.originalOpsCount);
             }
-            if (validOpsCount != null) {
-                payload.put("valid_ops_count", validOpsCount);
+            if (event.validOpsCount != null) {
+                payload.put("valid_ops_count", event.validOpsCount);
             }
-            if (filteredOpsCount != null) {
-                payload.put("filtered_ops_count", filteredOpsCount);
+            if (event.filteredOpsCount != null) {
+                payload.put("filtered_ops_count", event.filteredOpsCount);
             }
-            if (numOps != null) {
-                payload.put("num_ops", numOps);
+            if (event.numOps != null) {
+                payload.put("num_ops", event.numOps);
             }
 
             String jsonPayload = gson.toJson(payload);

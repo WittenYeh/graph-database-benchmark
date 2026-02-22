@@ -2,81 +2,6 @@
 
 An embedded graph database benchmark framework for testing Neo4j, JanusGraph, ArangoDB, and Aster **latency performance** using **native APIs** instead of query engines.
 
-## Project Structure
-
-```
-graph-database-benchmark/
-├── host/                          # Python host implementation
-│   ├── benchmark_launcher.py      # Main entry point
-│   ├── compiler/                  # Workload compiler
-│   │   └── workload_compiler.py
-│   ├── dataset/                   # Dataset loader
-│   │   └── dataset_loader.py
-│   ├── db/                        # Docker manager
-│   │   └── docker_manager.py
-│   └── report/                    # Report generator
-│       └── report_generator.py
-├── common/                        # Shared Java components
-│   └── src/main/java/com/graphbench/
-│       ├── api/                   # Core interfaces
-│       │   ├── BenchmarkExecutor.java
-│       │   └── WorkloadDispatcher.java
-│       └── workload/              # Workload data models
-│           ├── WorkloadTask.java
-│           ├── AddVertexParams.java
-│           ├── AddEdgeParams.java
-│           └── ...
-├── common-cpp/                    # Shared C++ components (headers-only)
-│   ├── CMakeLists.txt
-│   └── include/graphbench/
-│       ├── benchmark_executor.hpp      # CRTP base class
-│       ├── property_benchmark_executor.hpp
-│       ├── progress_callback.hpp
-│       └── benchmark_utils.hpp
-├── docker/                        # Docker container implementations
-│   ├── neo4j/                     # Neo4j embedded benchmark (Java)
-│   │   ├── Dockerfile
-│   │   ├── pom.xml
-│   │   └── src/main/java/com/graphbench/neo4j/
-│   │       ├── BenchmarkServer.java
-│   │       └── Neo4jBenchmarkExecutor.java
-│   ├── janusgraph/                # JanusGraph embedded benchmark (Java)
-│   │   ├── Dockerfile
-│   │   ├── pom.xml
-│   │   └── src/main/java/com/graphbench/janusgraph/
-│   │       ├── BenchmarkServer.java
-│   │       └── JanusGraphBenchmarkExecutor.java
-│   ├── arangodb/                  # ArangoDB benchmark (C++)
-│   │   ├── Dockerfile
-│   │   ├── CMakeLists.txt
-│   │   └── src/
-│   │       ├── arango_utils.hpp
-│   │       ├── arangodb_graph_loader.hpp
-│   │       ├── arangodb_benchmark_executor.hpp
-│   │       ├── arangodb_property_benchmark_executor.hpp
-│   │       └── arangodb_benchmark_server.cpp
-│   └── aster/                     # Aster embedded benchmark (C++)
-│       ├── Dockerfile
-│       ├── CMakeLists.txt
-│       └── src/
-│           ├── aster_graph_loader.hpp
-│           ├── aster_benchmark_executor.hpp
-│           ├── aster_property_benchmark_executor.hpp
-│           └── aster_benchmark_server.cpp
-├── config/                        # Configuration files
-│   ├── database-config.json
-│   └── datasets.json
-├── workloads/                     # Workload templates
-│   └── templates/
-│       └── example_workload.json
-├── graph-datasets/                # Dataset files (submodule)
-├── reports/                       # Benchmark results (generated)
-├── visualizations/                # Visualization outputs (generated)
-├── requirements.txt               # Python dependencies
-├── visualize.py                   # Visualization tool
-└── README.md
-```
-
 ## Architecture
 
 ```
@@ -126,7 +51,7 @@ The benchmark framework consists of two main components:
 - **BenchmarkLauncher**: Orchestrates the entire benchmark workflow
 - **WorkloadCompiler**: Generates native API workload JSON files with structured parameters
 - **DockerManager**: Manages Docker containers and communicates with benchmark servers
-- **ReportGenerator**: Generates visualizations from benchmark results using Seaborn
+- **ReportGenerator**: Collects benchmark results and saves to JSON files
 
 ### Docker Container (Java/C++)
 - **BenchmarkServer**: HTTP API server that receives execution requests and returns metrics
@@ -144,7 +69,7 @@ The benchmark framework consists of two main components:
 - **Multi-Language Support**: Java (Neo4j, JanusGraph) and C++ (ArangoDB) implementations
 - **Static Polymorphism**: C++ implementation uses CRTP for zero-overhead abstraction
 - Optimized graph loading with batch insertion
-- Beautiful visualizations with Seaborn
+- Interactive HTML visualizations with Plotly
 - Docker-based isolation for clean benchmarking
 - Reproducible results with seed support
 
@@ -256,19 +181,53 @@ python host/benchmark_launcher.py \
 
 ### Visualizing Results
 
-Generate comparison visualizations from multiple benchmark reports:
+The benchmark framework provides visualization tools to generate interactive HTML plots from benchmark reports.
+
+#### Batch Size Comparison
+
+Compare how different databases perform with varying batch sizes for each task:
 
 ```bash
-python visualize.py \
-  reports/bench_neo4j_coAuthorsDBLP.json \
-  reports/bench_janusgraph_coAuthorsDBLP.json \
-  --output-dir visualizations
+./visualize.sh batchsize \
+  --database neo4j janusgraph arangodb aster \
+  --workload example_workload \
+  --dataset delaunay_n13 \
+  --output-dir plots
 ```
 
-This will generate:
-- `latency_comparison.png`: P50, P90, P95, P99 latency comparison
-- `throughput_comparison.png`: Throughput comparison across tasks
-- `duration_comparison.png`: Task duration comparison
+This generates one interactive plot per task (e.g., `ADD_VERTEX`, `ADD_EDGE`) showing how latency changes with batch size across databases.
+
+Output files:
+- `plots/batchsize_delaunay_n13_ADD_VERTEX.html`
+- `plots/batchsize_delaunay_n13_ADD_EDGE.html`
+- etc.
+
+#### Performance Comparison
+
+Compare overall performance across databases for multiple datasets:
+
+```bash
+./visualize.sh performance \
+  --database neo4j janusgraph arangodb aster \
+  --workload example_workload \
+  --dataset delaunay_n13 movielens-small \
+  --output-dir plots
+```
+
+This generates one interactive grouped bar chart per dataset comparing average latency across all tasks.
+
+Output files:
+- `plots/performance_delaunay_n13_example_workload.html`
+- `plots/performance_movielens-small_example_workload.html`
+
+#### Visualization Scripts
+
+The `visualize/` directory contains Python scripts for generating plots:
+- `plot_batchsize_comparison.py`: Batch size comparison plots
+- `plot_performance_comparison.py`: Performance comparison plots
+- `examples.sh`: Example commands and usage demonstrations
+
+All plots are interactive HTML files using Plotly, allowing you to zoom, pan, and hover for detailed information.
 
 ## Configuration
 
@@ -539,7 +498,7 @@ Example output:
    - Measures pure execution time (no network overhead)
    - Returns results via HTTP API
 5. **Result Collection**: Host collects results and saves to JSON file
-6. **Visualization**: ReportGenerator creates comparison charts using Seaborn
+6. **Visualization**: Use `visualize.sh` to generate interactive plots from benchmark reports
 
 ### Native API Execution
 
@@ -584,8 +543,8 @@ Example output:
 | JanusGraph | 1.2.0-20251114-142114.b424a8f | November 14, 2025 | BerkeleyDB | Embedded | Java 17 |
 | ArangoDB | 3.12.7-2 | December 2024 | Fuerte C++ driver | Client-Server | C++17 |
 | Aster | Latest | 2025 | Embedded Graph | Embedded | C++17 |
-| OrientDB | Latest | 2024 | Embedded | Embedded | Java 17 |
-| Sqlg | Latest | 2024 | H2 Database | Embedded | Java 17 |
+| OrientDB | 3.2.49 | January 2026 | Embedded | Embedded | Java 17 |
+| Sqlg | 3.1.6 | February 2026 | H2 Database | Embedded | Java 17 |
 
 **Benchmark Mode:**
 - **Embedded**: Database runs in the same process as the benchmark executor (Neo4j, JanusGraph, Aster, OrientDB, Sqlg)
@@ -599,6 +558,86 @@ Example output:
 4. **Clean Benchmarking**: Docker isolation ensures reproducible, interference-free measurements
 5. **Pure Execution Time**: Timing excludes network transmission and only measures API call execution
 6. **Extensibility**: Easy to add new databases by implementing executor interfaces
+
+## Project Structure
+
+```
+graph-database-benchmark/
+├── host/                          # Python host implementation
+│   ├── benchmark_launcher.py      # Main entry point
+│   ├── compiler/                  # Workload compiler
+│   │   └── workload_compiler.py
+│   ├── dataset/                   # Dataset loader
+│   │   └── dataset_loader.py
+│   ├── db/                        # Docker manager
+│   │   └── docker_manager.py
+│   └── report/                    # Report generator
+│       └── report_generator.py
+├── common/                        # Shared Java components
+│   └── src/main/java/com/graphbench/
+│       ├── api/                   # Core interfaces
+│       │   ├── BenchmarkExecutor.java
+│       │   └── WorkloadDispatcher.java
+│       └── workload/              # Workload data models
+│           ├── WorkloadTask.java
+│           ├── AddVertexParams.java
+│           ├── AddEdgeParams.java
+│           └── ...
+├── common-cpp/                    # Shared C++ components (headers-only)
+│   ├── CMakeLists.txt
+│   └── include/graphbench/
+│       ├── benchmark_executor.hpp      # CRTP base class
+│       ├── property_benchmark_executor.hpp
+│       ├── progress_callback.hpp
+│       └── benchmark_utils.hpp
+├── docker/                        # Docker container implementations
+│   ├── neo4j/                     # Neo4j embedded benchmark (Java)
+│   │   ├── Dockerfile
+│   │   ├── pom.xml
+│   │   └── src/main/java/com/graphbench/neo4j/
+│   │       ├── BenchmarkServer.java
+│   │       └── Neo4jBenchmarkExecutor.java
+│   ├── janusgraph/                # JanusGraph embedded benchmark (Java)
+│   │   ├── Dockerfile
+│   │   ├── pom.xml
+│   │   └── src/main/java/com/graphbench/janusgraph/
+│   │       ├── BenchmarkServer.java
+│   │       └── JanusGraphBenchmarkExecutor.java
+│   ├── arangodb/                  # ArangoDB benchmark (C++)
+│   │   ├── Dockerfile
+│   │   ├── CMakeLists.txt
+│   │   └── src/
+│   │       ├── arango_utils.hpp
+│   │       ├── arangodb_graph_loader.hpp
+│   │       ├── arangodb_benchmark_executor.hpp
+│   │       ├── arangodb_property_benchmark_executor.hpp
+│   │       └── arangodb_benchmark_server.cpp
+│   └── aster/                     # Aster embedded benchmark (C++)
+│       ├── Dockerfile
+│       ├── CMakeLists.txt
+│       └── src/
+│           ├── aster_graph_loader.hpp
+│           ├── aster_benchmark_executor.hpp
+│           ├── aster_property_benchmark_executor.hpp
+│           └── aster_benchmark_server.cpp
+├── config/                        # Configuration files
+│   ├── database-config.json
+│   └── datasets.json
+├── workloads/                     # Workload templates
+│   └── templates/
+│       └── example_workload.json
+├── visualize/                     # Visualization scripts
+│   ├── plot_batchsize_comparison.py
+│   ├── plot_performance_comparison.py
+│   ├── examples.sh
+│   └── README.md
+├── graph-datasets/                # Dataset files (submodule)
+├── reports/                       # Benchmark results (generated)
+├── plots/                         # Visualization outputs (generated)
+├── requirements.txt               # Python dependencies
+├── visualize.sh                   # Visualization wrapper script
+└── README.md
+```
 
 ## License
 

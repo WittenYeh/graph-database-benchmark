@@ -1,12 +1,66 @@
 #pragma once
 
 #include <string>
+#include <optional>
 #include <nlohmann/json.hpp>
 #include <curl/curl.h>
 
 namespace graphbench {
 
 using json = nlohmann::json;
+
+/**
+ * Structured parameter object for progress events.
+ */
+struct ProgressEvent {
+    std::string event;
+    std::string taskName;
+    std::optional<std::string> workloadFile;
+    std::optional<std::string> status;
+    std::optional<double> durationSeconds;
+    int taskIndex = 0;
+    int totalTasks = 0;
+    std::optional<int> originalOpsCount;
+    std::optional<int> validOpsCount;
+    std::optional<int> filteredOpsCount;
+    std::optional<int> numOps;
+
+    ProgressEvent(const std::string& event, const std::string& taskName)
+        : event(event), taskName(taskName) {}
+
+    ProgressEvent& setWorkloadFile(const std::string& file) {
+        workloadFile = file;
+        return *this;
+    }
+
+    ProgressEvent& setStatus(const std::string& s) {
+        status = s;
+        return *this;
+    }
+
+    ProgressEvent& setDuration(double duration) {
+        durationSeconds = duration;
+        return *this;
+    }
+
+    ProgressEvent& setTaskProgress(int index, int total) {
+        taskIndex = index;
+        totalTasks = total;
+        return *this;
+    }
+
+    ProgressEvent& setOpsCounts(int original, int valid, int filtered) {
+        originalOpsCount = original;
+        validOpsCount = valid;
+        filteredOpsCount = filtered;
+        return *this;
+    }
+
+    ProgressEvent& setNumOps(int ops) {
+        numOps = ops;
+        return *this;
+    }
+};
 
 /**
  * Handles progress callbacks and logging to the host server.
@@ -24,81 +78,40 @@ public:
     }
 
     /**
-     * Send progress callback to host.
+     * Send progress callback to host using structured event object.
      */
-    void sendProgressCallback(const std::string& event,
-                             const std::string& taskName,
-                             const std::string& workloadFile,
-                             const std::string& status,
-                             double durationSeconds,
-                             int taskIndex,
-                             int totalTasks) {
-        sendProgressCallback(event, taskName, workloadFile, status, durationSeconds,
-                           taskIndex, totalTasks, -1, -1, -1, -1);
-    }
-
-    /**
-     * Send progress callback to host with operation counts.
-     */
-    void sendProgressCallback(const std::string& event,
-                             const std::string& taskName,
-                             const std::string& workloadFile,
-                             const std::string& status,
-                             double durationSeconds,
-                             int taskIndex,
-                             int totalTasks,
-                             int originalOpsCount,
-                             int validOpsCount,
-                             int filteredOpsCount) {
-        sendProgressCallback(event, taskName, workloadFile, status, durationSeconds,
-                           taskIndex, totalTasks, originalOpsCount, validOpsCount, filteredOpsCount, -1);
-    }
-
-    /**
-     * Send progress callback to host with operation counts and numOps.
-     */
-    void sendProgressCallback(const std::string& event,
-                             const std::string& taskName,
-                             const std::string& workloadFile,
-                             const std::string& status,
-                             double durationSeconds,
-                             int taskIndex,
-                             int totalTasks,
-                             int originalOpsCount,
-                             int validOpsCount,
-                             int filteredOpsCount,
-                             int numOps) {
+    void sendProgressCallback(const ProgressEvent& event) {
         if (callbackUrl_.empty()) {
             return;
         }
 
         json payload = {
-            {"event", event},
-            {"task_name", taskName},
-            {"task_index", taskIndex},
-            {"total_tasks", totalTasks}
+            {"event", event.event},
+            {"task_name", event.taskName},
+            {"task_index", event.taskIndex},
+            {"total_tasks", event.totalTasks}
         };
 
-        if (!workloadFile.empty()) {
-            payload["workload_file"] = workloadFile;
+        if (event.workloadFile.has_value()) {
+            payload["workload_file"] = event.workloadFile.value();
         }
-        if (!status.empty()) {
-            payload["status"] = status;
+        if (event.status.has_value()) {
+            payload["status"] = event.status.value();
         }
-        if (durationSeconds >= 0) {
-            payload["duration_seconds"] = durationSeconds;
+        if (event.durationSeconds.has_value()) {
+            payload["duration_seconds"] = event.durationSeconds.value();
         }
-        if (originalOpsCount >= 0) {
-            payload["original_ops_count"] = originalOpsCount;
+        if (event.originalOpsCount.has_value()) {
+            payload["original_ops_count"] = event.originalOpsCount.value();
         }
-        if (validOpsCount >= 0) {
-            payload["valid_ops_count"] = validOpsCount;
+        if (event.validOpsCount.has_value()) {
+            payload["valid_ops_count"] = event.validOpsCount.value();
         }
-        if (filteredOpsCount >= 0) {
-            payload["filtered_ops_count"] = filteredOpsCount;
+        if (event.filteredOpsCount.has_value()) {
+            payload["filtered_ops_count"] = event.filteredOpsCount.value();
         }
-        if (numOps >= 0) {
-            payload["num_ops"] = numOps;
+        if (event.numOps.has_value()) {
+            payload["num_ops"] = event.numOps.value();
         }
 
         sendHttpPost(payload.dump());

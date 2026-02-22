@@ -16,6 +16,8 @@
 #   --dataset, -s     Comma-separated list of datasets (e.g., "coAuthorsDBLP,delaunay_n13")
 #   --workload, -w    Path to workload config (default: workloads/templates/example_workload.json)
 #   --help, -h        Show this help message
+#
+# Note: The workload is compiled once per dataset and reused across all databases for efficiency.
 
 set -e
 
@@ -52,6 +54,8 @@ while [[ $# -gt 0 ]]; do
             echo "  ./run_benchmark.sh --database neo4j --dataset coAuthorsDBLP"
             echo "  ./run_benchmark.sh -d neo4j,janusgraph,arangodb -s coAuthorsDBLP,delaunay_n13"
             echo "  ./run_benchmark.sh -d arangodb -s coAuthorsDBLP -w workloads/templates/quick_test.json"
+            echo ""
+            echo "Note: The workload is compiled once per dataset and reused across all databases."
             exit 0
             ;;
         -*)
@@ -77,7 +81,11 @@ done
 DATABASES=${DATABASES:-neo4j}
 DATASETS=${DATASETS:-coAuthorsDBLP}
 
-# Convert comma-separated strings to arrays
+# Convert comma-separated strings to space-separated for Python args
+DB_ARGS=$(echo "$DATABASES" | tr ',' ' ')
+DS_ARGS=$(echo "$DATASETS" | tr ',' ' ')
+
+# Convert to arrays for display
 IFS=',' read -ra DB_ARRAY <<< "$DATABASES"
 IFS=',' read -ra DS_ARRAY <<< "$DATASETS"
 
@@ -87,6 +95,8 @@ echo "=========================================="
 echo "Databases: ${DB_ARRAY[*]}"
 echo "Datasets: ${DS_ARRAY[*]}"
 echo "Workload: $WORKLOAD_CONFIG"
+echo "=========================================="
+echo "Optimization: Workload compiled once per dataset, reused across all databases"
 echo "=========================================="
 echo
 
@@ -98,33 +108,31 @@ for DATABASE in "${DB_ARRAY[@]}"; do
     fi
 done
 
-# Run benchmarks for all combinations
-TOTAL_RUNS=$((${#DB_ARRAY[@]} * ${#DS_ARRAY[@]}))
-CURRENT_RUN=0
+# Run benchmark with optimized approach:
+# - For each dataset: compile workload once
+# - Test all databases with the same compiled workload
+# - Clean up compiled workload after testing all databases
+echo
+echo "=========================================="
+echo "Running Optimized Benchmark"
+echo "=========================================="
+echo "Total databases: ${#DB_ARRAY[@]}"
+echo "Total datasets: ${#DS_ARRAY[@]}"
+echo "Total benchmark runs: $((${#DB_ARRAY[@]} * ${#DS_ARRAY[@]}))"
+echo "=========================================="
+echo
 
-for DATABASE in "${DB_ARRAY[@]}"; do
-    for DATASET in "${DS_ARRAY[@]}"; do
-        CURRENT_RUN=$((CURRENT_RUN + 1))
-        echo
-        echo "=========================================="
-        echo "Run $CURRENT_RUN/$TOTAL_RUNS: $DATABASE on $DATASET"
-        echo "=========================================="
-
-        python host/benchmark_launcher.py \
-            --database-name "$DATABASE" \
-            --dataset-name "$DATASET" \
-            --workload-config "$WORKLOAD_CONFIG" \
-            --output-dir reports
-
-        echo "✓ Results saved to reports/ directory."
-    done
-done
+python host/benchmark_launcher.py \
+    --database-name $DB_ARGS \
+    --dataset-name $DS_ARGS \
+    --workload-config "$WORKLOAD_CONFIG" \
+    --output-dir reports
 
 echo
 echo "=========================================="
 echo "All benchmarks complete!"
 echo "=========================================="
-echo "Total runs: $TOTAL_RUNS"
+echo "Total runs: $((${#DB_ARRAY[@]} * ${#DS_ARRAY[@]}))"
 echo "Results directory: reports/"
 echo
 echo "To visualize results, run:"

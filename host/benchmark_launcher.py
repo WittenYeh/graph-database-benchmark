@@ -20,7 +20,7 @@ from progress_server import ProgressServer
 class BenchmarkLauncher:
     def __init__(self, args):
         self.args = args
-        self.database_name = args.database_name
+        self.database_names = args.database_name if isinstance(args.database_name, list) else [args.database_name]
         self.database_config = self._load_json(args.database_config)
         self.dataset_config = self._load_json(args.dataset_config)
         self.workload_config = self._load_json(args.workload_config)
@@ -57,14 +57,13 @@ class BenchmarkLauncher:
 
     def run(self):
         """Main execution flow"""
-        print(f"🚀 Starting benchmark for database: {self.database_name}")
+        print(f"🚀 Starting benchmark for databases: {', '.join(self.database_names)}")
 
-        # Get database configuration
-        if self.database_name not in self.database_config:
-            print(f"❌ Error: Database '{self.database_name}' not found in configuration")
-            sys.exit(1)
-
-        db_config = self.database_config[self.database_name]
+        # Validate all database configurations
+        for db_name in self.database_names:
+            if db_name not in self.database_config:
+                print(f"❌ Error: Database '{db_name}' not found in configuration")
+                sys.exit(1)
 
         # Get workload name and mode from config
         workload_name = self.workload_config.get('name', 'unnamed_workload')
@@ -91,15 +90,14 @@ class BenchmarkLauncher:
         callback_url = progress_server.get_callback_url()
 
         try:
-            # Build/rebuild Docker image if needed
-            print(f"\n📦 Preparing Docker image: {db_config['docker_image']}")
-            self.docker_manager.prepare_image(self.database_name, self.args.rebuild)
-
             # Get datasets to test
             datasets = self._get_datasets_to_test()
 
+            # Outer loop: iterate over datasets
             for dataset_name in datasets:
-                print(f"\n📊 Testing dataset: {dataset_name}")
+                print(f"\n{'='*80}")
+                print(f"📊 Dataset: {dataset_name}")
+                print(f"{'='*80}")
 
                 # Get dataset path
                 dataset_path = self.dataset_loader.get_dataset_path(dataset_name)
@@ -107,69 +105,88 @@ class BenchmarkLauncher:
                     print(f"⚠️  Warning: Dataset '{dataset_name}' not found, skipping...")
                     continue
 
-                # Compile workload to database-specific queries
-                print(f"⚙️  Compiling workload...")
+                # Compile workload ONCE per dataset (database-agnostic)
+                print(f"\n⚙️  Compiling workload for dataset '{dataset_name}'...")
                 compiled_dir = self.workload_compiler.compile_workload(
                     self.workload_config,
-                    self.database_name,
                     dataset_name,
                     self.args.seed,
                     dataset_path
                 )
+                print(f"✓ Workload compiled to: {compiled_dir}")
 
-                # Start Docker container and run benchmark
-                print(f"🐳 Starting Docker container: {db_config['container_name']}")
-                container = self.docker_manager.start_container(
-                    self.database_name,
-                    dataset_path,
-                    compiled_dir,
-                    callback_url,
-                    mode=mode
-                )
+                # Inner loop: iterate over databases using the same compiled workload
+                for database_name in self.database_names:
+                    print(f"\n{'-'*80}")
+                    print(f"🗄️  Database: {database_name}")
+                    print(f"{'-'*80}")
 
-                # Store container for timeout handling
-                self.current_container = container
+                    db_config = self.database_config[database_name]
 
-                try:
-                    # Execute benchmark tasks
-                    print(f"⏱️  Executing benchmark tasks...")
-                    results = self.docker_manager.execute_benchmark(
-                        container,
-                        self.workload_config,
-                        dataset_name,
+                    # Build/rebuild Docker image if needed
+                    print(f"📦 Preparing Docker image: {db_config['docker_image']}")
+                    self.docker_manager.prepare_image(database_name, self.args.rebuild)
+
+                    # Start Docker container and run benchmark
+                    print(f"🐳 Starting Docker container: {db_config['container_name']}")
+                    container = self.docker_manager.start_container(
+                        database_name,
                         dataset_path,
-                        callback_url
+                        compiled_dir,
+                        callback_url,
+                        mode=mode
                     )
 
-                    # Add workload name to metadata
-                    if 'metadata' not in results:
-                        results['metadata'] = {}
-                    results['metadata']['workload'] = workload_name
+                    # Store container for timeout handling
+                    self.current_container = container
 
-                    # Save results
-                    output_file = self.output_dir / f"bench_{self.database_name}_{dataset_name}_{workload_name}.json"
-                    with open(output_file, 'w') as f:
-                        json.dump(results, f, indent=2)
+                    try:
+                        # Execute benchmark tasks
+                        print(f"⏱️  Executing benchmark tasks...")
+                        results = self.docker_manager.execute_benchmark(
+                            container,
+                            self.workload_config,
+                            dataset_name,
+                            dataset_path,
+                            callback_url
+                        )
 
-                    print(f"✅ Results saved to: {output_file}")
+                        # Add workload name to metadata
+                        if 'metadata' not in results:
+                            results['metadata'] = {}
+                        results['metadata']['workload'] = workload_name
 
-                except (requests.exceptions.RequestException, Exception) as e:
-                    # Handle timeout or other errors
-                    error_type = type(e).__name__
-                    print(f"❌ Benchmark execution failed: {error_type}")
-                    if "timeout" in str(e).lower() or "timed out" in str(e).lower():
-                        print(f"⚠️  This was likely caused by a subtask timeout.")
-                        print(f"⚠️  Partial results may have been lost.")
-                    else:
-                        print(f"⚠️  Error details: {e}")
+                        # Save results
+                        output_file = self.output_dir / f"bench_{database_name}_{dataset_name}_{workload_name}.json"
+                        with open(output_file, 'w') as f:
+                            json.dump(results, f, indent=2)
 
-                finally:
-                    # Clear current container reference
-                    self.current_container = None
+                        print(f"✅ Results saved to: {output_file}")
 
-                    # Stop and remove container
-                    print(f"🛑 Stopping container...")
-                    self.docker_manager.stop_container(container)
+                    except (requests.exceptions.RequestException, Exception) as e:
+                        # Handle timeout or other errors
+                        error_type = type(e).__name__
+                        print(f"❌ Benchmark execution failed: {error_type}")
+                        if "timeout" in str(e).lower() or "timed out" in str(e).lower():
+                            print(f"⚠️  This was likely caused by a subtask timeout.")
+                            print(f"⚠️  Partial results may have been lost.")
+                        else:
+                            print(f"⚠️  Error details: {e}")
+
+                    finally:
+                        # Clear current container reference
+                        self.current_container = None
+
+                        # Stop and remove container
+                        print(f"🛑 Stopping container...")
+                        self.docker_manager.stop_container(container)
+
+                # Clean up compiled workload after testing all databases for this dataset
+                print(f"\n🧹 Cleaning up compiled workload: {compiled_dir}")
+                import shutil
+                if compiled_dir.exists():
+                    shutil.rmtree(compiled_dir)
+                    print(f"✓ Compiled workload removed")
 
             print(f"\n🎉 Benchmark completed!")
 
@@ -184,9 +201,9 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
 
-    parser.add_argument('--database-name', required=True,
+    parser.add_argument('--database-name', nargs='+', required=True,
                         choices=['neo4j', 'janusgraph', 'arangodb', 'orientdb', 'aster', 'sqlg'],
-                        help='Database to benchmark')
+                        help='Database(s) to benchmark')
 
     parser.add_argument('--database-config', default='config/database-config.json',
                         help='Path to database configuration file')

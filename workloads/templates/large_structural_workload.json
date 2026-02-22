@@ -1,0 +1,15 @@
+{
+  "name": "example_workload",
+  "mode": "structural",
+  "server_config": {
+    "threads": 1
+  },
+  "tasks": [
+    { "name": "load_graph" },
+    { "name": "add_vertex", "ops": 40960, "batch_sizes": [2048, 4096, 8192] },
+    { "name": "add_edge", "ops": 40960, "batch_sizes": [2048, 4096, 8192] },
+    { "name": "remove_vertex", "ops": 40960, "batch_sizes": [2048, 4096, 8192] },
+    { "name": "remove_edge", "ops": 40960, "batch_sizes": [2048, 4096, 8192] },
+    { "name": "get_nbrs", "ops": 40960, "direction": "OUT", "batch_sizes": [2048, 4096, 8192] }
+  ]
+}

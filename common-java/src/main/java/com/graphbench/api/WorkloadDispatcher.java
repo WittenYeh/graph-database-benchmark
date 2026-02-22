@@ -104,12 +104,23 @@ public class WorkloadDispatcher {
         executor.shutdown();
 
         // Cleanup database files with callback
-        progressCallback.sendProgressCallback("cleanup_start", "CLEANUP", null, null, null, 0, 0);
+        progressCallback.sendProgressCallback(
+            new ProgressCallback.ProgressEvent("cleanup_start", "CLEANUP")
+                .taskProgress(0, 0)
+        );
         try {
             BenchmarkUtils.cleanupDatabaseFiles(executor.getDatabasePath(), executor.getSnapshotPath());
-            progressCallback.sendProgressCallback("cleanup_complete", "CLEANUP", null, "success", null, 0, 0);
+            progressCallback.sendProgressCallback(
+                new ProgressCallback.ProgressEvent("cleanup_complete", "CLEANUP")
+                    .status("success")
+                    .taskProgress(0, 0)
+            );
         } catch (Exception e) {
-            progressCallback.sendProgressCallback("cleanup_complete", "CLEANUP", null, "failed", null, 0, 0);
+            progressCallback.sendProgressCallback(
+                new ProgressCallback.ProgressEvent("cleanup_complete", "CLEANUP")
+                    .status("failed")
+                    .taskProgress(0, 0)
+            );
             progressCallback.sendErrorMessage("Failed to cleanup database files: " + e.getMessage(), "CleanupError");
         }
 
@@ -138,7 +149,11 @@ public class WorkloadDispatcher {
             result.put("ops_count", task.getOpsCount());
 
             // Send task start callback
-            progressCallback.sendProgressCallback("task_start", taskType, workloadFile.getName(), null, null, taskIndex, totalTasks);
+            progressCallback.sendProgressCallback(
+                new ProgressCallback.ProgressEvent("task_start", taskType)
+                    .workloadFile(workloadFile.getName())
+                    .taskProgress(taskIndex, totalTasks)
+            );
 
             // Dispatch to appropriate executor method
             if ("LOAD_GRAPH".equals(taskType)) {
@@ -162,9 +177,16 @@ public class WorkloadDispatcher {
                 );
 
                 // Create snapshot after loading graph
-                progressCallback.sendProgressCallback("snapshot_start", "SNAPSHOT", null, null, null, taskIndex, totalTasks);
+                progressCallback.sendProgressCallback(
+                    new ProgressCallback.ProgressEvent("snapshot_start", "SNAPSHOT")
+                        .taskProgress(taskIndex, totalTasks)
+                );
                 executor.snapGraph();
-                progressCallback.sendProgressCallback("snapshot_complete", "SNAPSHOT", null, "success", null, taskIndex, totalTasks);
+                progressCallback.sendProgressCallback(
+                    new ProgressCallback.ProgressEvent("snapshot_complete", "SNAPSHOT")
+                        .status("success")
+                        .taskProgress(taskIndex, totalTasks)
+                );
             } else {
                 // Check whether the dataset supports the required property columns.
                 // csvMetadata must be populated by a prior LOAD_GRAPH task.
@@ -203,17 +225,27 @@ public class WorkloadDispatcher {
 
                 for (int batchSize : batchSizes) {
                     // Restore graph to clean state before executing workload
-                    progressCallback.sendProgressCallback("restore_start", "RESTORE", null, null, null, taskIndex, totalTasks);
+                    progressCallback.sendProgressCallback(
+                        new ProgressCallback.ProgressEvent("restore_start", "RESTORE")
+                            .taskProgress(taskIndex, totalTasks)
+                    );
                     executor.restoreGraph();
-                    progressCallback.sendProgressCallback("restore_complete", "RESTORE", null, "success", null, taskIndex, totalTasks);
+                    progressCallback.sendProgressCallback(
+                        new ProgressCallback.ProgressEvent("restore_complete", "RESTORE")
+                            .status("success")
+                            .taskProgress(taskIndex, totalTasks)
+                    );
 
                     // Calculate num_ops for timeout monitoring
                     Integer numOps = ParameterParser.getNumOps(taskType, preprocessedParams);
 
                     // Send subtask start callback with num_ops
                     String subtaskName = taskType + " (batch_size=" + batchSize + ")";
-                    progressCallback.sendProgressCallback("subtask_start", subtaskName, null, null, null, taskIndex, totalTasks,
-                                                         null, null, null, numOps);
+                    progressCallback.sendProgressCallback(
+                        new ProgressCallback.ProgressEvent("subtask_start", subtaskName)
+                            .taskProgress(taskIndex, totalTasks)
+                            .numOps(numOps)
+                    );
 
                     Map<String, Object> subtaskResult = new HashMap<>();
                     long taskStartTime = System.nanoTime();
@@ -225,8 +257,13 @@ public class WorkloadDispatcher {
                     Integer originalOpsCount = (Integer) subtaskResult.get("originalOpsCount");
                     Integer validOpsCount = (Integer) subtaskResult.get("validOpsCount");
                     Integer filteredOpsCount = (Integer) subtaskResult.get("filteredOpsCount");
-                    progressCallback.sendProgressCallback("subtask_complete", subtaskName, null, "success", taskDuration,
-                                                         taskIndex, totalTasks, originalOpsCount, validOpsCount, filteredOpsCount);
+                    progressCallback.sendProgressCallback(
+                        new ProgressCallback.ProgressEvent("subtask_complete", subtaskName)
+                            .status("success")
+                            .duration(taskDuration)
+                            .taskProgress(taskIndex, totalTasks)
+                            .opsCounts(originalOpsCount, validOpsCount, filteredOpsCount)
+                    );
 
                     batchResults.add(subtaskResult);
                 }
@@ -252,7 +289,12 @@ public class WorkloadDispatcher {
         // Send task complete callback
         String status = (String) result.getOrDefault("status", "failed");
         String taskType = (String) result.get("task_type");
-        progressCallback.sendProgressCallback("task_complete", taskType, null, status, durationSeconds, taskIndex, totalTasks);
+        progressCallback.sendProgressCallback(
+            new ProgressCallback.ProgressEvent("task_complete", taskType)
+                .status(status)
+                .duration(durationSeconds)
+                .taskProgress(taskIndex, totalTasks)
+        );
 
         return result;
     }

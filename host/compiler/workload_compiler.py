@@ -6,6 +6,7 @@ import json
 import random
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
+import pandas as pd
 
 STRUCTURAL_TASKS = {'load_graph', 'add_vertex', 'remove_vertex', 'add_edge', 'remove_edge', 'get_nbrs'}
 PROPERTY_TASKS = {'load_graph', 'update_vertex_property', 'update_edge_property',
@@ -35,7 +36,6 @@ class WorkloadCompiler:
     def compile_workload(
         self,
         workload_config: Dict[str, Any],
-        database_name: str,
         dataset_name: str,
         seed: Optional[int] = None,
         dataset_path: Optional[Path] = None
@@ -58,8 +58,8 @@ class WorkloadCompiler:
         if dataset_path:
             self._scan_dataset(dataset_path)
 
-        # Clean up the specific compiled workload directory
-        output_dir = Path(f"workloads/compiled/{database_name}_{dataset_name}")
+        # Clean up the dataset-specific compiled workload directory (database-agnostic)
+        output_dir = Path(f"workloads/compiled/{dataset_name}")
         if output_dir.exists():
             import shutil
             print(f"  🧹 Removing old compiled workload: {output_dir}")
@@ -77,72 +77,78 @@ class WorkloadCompiler:
         return output_dir
 
     def _scan_dataset(self, dataset_path: Path):
-        """Scan dataset directory containing nodes.csv and edges.csv"""
+        """Scan dataset directory containing nodes.csv and edges.csv using pandas for speed"""
         dataset_dir = Path(dataset_path)
 
-        # Scan nodes.csv
+        # Scan nodes.csv with pandas
         nodes_file = dataset_dir / 'nodes.csv'
         print(f"Scanning nodes: {nodes_file}...")
-        node_count = 0
-        with open(nodes_file, 'r') as f:
-            reader = csv.DictReader(f)
-            # Discover property columns (everything except node_id)
-            all_cols = reader.fieldnames or []
-            self.node_property_keys = [c for c in all_cols if c != 'node_id']
 
-            for row in reader:
-                try:
+        try:
+            # Read CSV with pandas (much faster than csv.DictReader)
+            nodes_df = pd.read_csv(nodes_file)
+            node_count = len(nodes_df)
+
+            # Get property columns
+            self.node_property_keys = [c for c in nodes_df.columns if c != 'node_id']
+
+            # Get max ID
+            self.max_dataset_id = int(nodes_df['node_id'].max())
+
+            # Sample nodes
+            if node_count > self.SAMPLE_SIZE:
+                sampled_df = nodes_df.sample(n=self.SAMPLE_SIZE, random_state=random.randint(0, 1000000))
+            else:
+                sampled_df = nodes_df
+
+            # Extract sampled node IDs
+            self.sampled_nodes = sampled_df['node_id'].astype(int).tolist()
+
+            # Store property values for sampled nodes (only if properties exist)
+            if self.node_property_keys:
+                for _, row in sampled_df.iterrows():
                     node_id = int(row['node_id'])
-                    self.max_dataset_id = max(self.max_dataset_id, node_id)
+                    props = {k: str(row[k]) for k in self.node_property_keys if pd.notna(row[k])}
+                    if props:
+                        self.sampled_node_props[node_id] = props
 
-                    # Reservoir sampling for node IDs
-                    if len(self.sampled_nodes) < self.SAMPLE_SIZE:
-                        self.sampled_nodes.append(node_id)
-                    else:
-                        r = random.randint(0, node_count)
-                        if r < self.SAMPLE_SIZE:
-                            self.sampled_nodes[r] = node_id
+        except Exception as e:
+            print(f"Error scanning nodes: {e}")
+            raise
 
-                    # Store property values for sampled nodes (if properties exist)
-                    if self.node_property_keys:
-                        props = {k: row[k] for k in self.node_property_keys if row.get(k)}
-                        if props:
-                            self.sampled_node_props[node_id] = props
-
-                    node_count += 1
-                except (ValueError, KeyError):
-                    continue
-
-        # Scan edges.csv
+        # Scan edges.csv with pandas
         edges_file = dataset_dir / 'edges.csv'
         print(f"Scanning edges: {edges_file}...")
-        edge_count = 0
-        with open(edges_file, 'r') as f:
-            reader = csv.DictReader(f)
-            all_cols = reader.fieldnames or []
-            self.edge_property_keys = [c for c in all_cols if c not in ('src', 'dst')]
 
-            for row in reader:
-                try:
+        try:
+            # Read CSV with pandas
+            edges_df = pd.read_csv(edges_file)
+            edge_count = len(edges_df)
+
+            # Get property columns
+            self.edge_property_keys = [c for c in edges_df.columns if c not in ('src', 'dst')]
+
+            # Sample edges
+            if edge_count > self.SAMPLE_SIZE:
+                sampled_df = edges_df.sample(n=self.SAMPLE_SIZE, random_state=random.randint(0, 1000000))
+            else:
+                sampled_df = edges_df
+
+            # Extract sampled edges
+            self.sampled_edges = [(int(row['src']), int(row['dst']))
+                                  for _, row in sampled_df.iterrows()]
+
+            # Store property values for sampled edges (only if properties exist)
+            if self.edge_property_keys:
+                for _, row in sampled_df.iterrows():
                     src, dst = int(row['src']), int(row['dst'])
+                    props = {k: str(row[k]) for k in self.edge_property_keys if pd.notna(row[k])}
+                    if props:
+                        self.sampled_edge_props[(src, dst)] = props
 
-                    # Reservoir sampling for edges
-                    if len(self.sampled_edges) < self.SAMPLE_SIZE:
-                        self.sampled_edges.append((src, dst))
-                    else:
-                        r = random.randint(0, edge_count)
-                        if r < self.SAMPLE_SIZE:
-                            self.sampled_edges[r] = (src, dst)
-
-                    # Store property values for sampled edges (if properties exist)
-                    if self.edge_property_keys:
-                        props = {k: row[k] for k in self.edge_property_keys if row.get(k)}
-                        if props:
-                            self.sampled_edge_props[(src, dst)] = props
-
-                    edge_count += 1
-                except (ValueError, KeyError):
-                    continue
+        except Exception as e:
+            print(f"Error scanning edges: {e}")
+            raise
 
         print(f"Baseline Scanned. Nodes: {node_count}, Edges: {edge_count}, Max ID: {self.max_dataset_id}")
         if self.node_property_keys:
