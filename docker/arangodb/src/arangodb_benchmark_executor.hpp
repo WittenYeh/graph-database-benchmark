@@ -108,7 +108,7 @@ public:
         std::random_device rd;
         std::mt19937 gen(rd());
 
-        return batchExecute(count, batchSize, [this, &gen](int batchCount) {
+        return executeBatchOperation(count, batchSize, [this, &gen](int batchCount) {
             // Build batch of vertex documents
             json docs = json::array();
             for (int i = 0; i < batchCount; i++) {
@@ -129,7 +129,7 @@ public:
      * Uses batch AQL REMOVE to delete multiple vertices in one query.
      */
     std::vector<double> removeVertexImpl(const std::vector<std::any>& systemIds, int batchSize) {
-        return batchExecute(systemIds, batchSize, [this](const std::vector<std::any>& batch) {
+        return executeBatchOperation(systemIds, batchSize, [this](const std::vector<std::any>& batch) {
             // Build array of vertex keys
             json keys = json::array();
             for (const auto& id : batch) {
@@ -150,7 +150,7 @@ public:
     std::vector<double> addEdgeImpl(const std::string& label,
                                     const std::vector<std::pair<std::any, std::any>>& pairs,
                                     int batchSize) {
-        return batchExecute(pairs, batchSize, [this, &label](const std::vector<std::pair<std::any, std::any>>& batch) {
+        return executeBatchOperation(pairs, batchSize, [this, &label](const std::vector<std::pair<std::any, std::any>>& batch) {
             // Build batch of edge documents
             json docs = json::array();
             for (const auto& [src, dst] : batch) {
@@ -175,7 +175,7 @@ public:
     std::vector<double> removeEdgeImpl(const std::string& label,
                                        const std::vector<std::pair<std::any, std::any>>& pairs,
                                        int batchSize) {
-        return batchExecute(pairs, batchSize, [this, &label](const std::vector<std::pair<std::any, std::any>>& batch) {
+        return executeBatchOperation(pairs, batchSize, [this, &label](const std::vector<std::pair<std::any, std::any>>& batch) {
             // Build array of edge specifications
             json edgeSpecs = json::array();
             for (const auto& [src, dst] : batch) {
@@ -203,7 +203,7 @@ public:
     std::vector<double> getNbrsImpl(const std::string& direction,
                                     const std::vector<std::any>& systemIds,
                                     int batchSize) {
-        return batchExecute(systemIds, batchSize, [this, &direction](const std::vector<std::any>& batch) {
+        return executeBatchOperation(systemIds, batchSize, [this, &direction](const std::vector<std::any>& batch) {
             // Build array of vertex IDs
             json vertexIds = json::array();
             for (const auto& id : batch) {
@@ -277,7 +277,7 @@ protected:
      * Measures latency per operation.
      */
     template<typename Func>
-    std::vector<double> batchExecute(int count, int batchSize, Func operation) {
+    std::vector<double> executeBatchOperation(int count, int batchSize, Func operation) {
         std::vector<double> latencies;
         for (int i = 0; i < count; i += batchSize) {
             int batchCount = std::min(batchSize, count - i);
@@ -299,7 +299,7 @@ protected:
      * Measures latency per item.
      */
     template<typename T, typename Func>
-    std::vector<double> batchExecute(const std::vector<T>& items, int batchSize, Func operation) {
+    std::vector<double> executeBatchOperation(const std::vector<T>& items, int batchSize, Func operation) {
         std::vector<double> latencies;
         for (size_t i = 0; i < items.size(); i += batchSize) {
             size_t end = std::min(i + batchSize, items.size());

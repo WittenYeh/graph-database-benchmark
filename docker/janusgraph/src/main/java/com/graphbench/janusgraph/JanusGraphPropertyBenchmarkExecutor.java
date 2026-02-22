@@ -41,7 +41,7 @@ public class JanusGraphPropertyBenchmarkExecutor extends JanusGraphBenchmarkExec
 
     @Override
     public List<Double> updateVertexProperty(List<UpdateVertexPropertyParams.VertexUpdate> updates, int batchSize) {
-        return transactionalExecute(updates, update -> {
+        return transactionalBatchExecute(updates, update -> {
             Vertex v = g.V(update.getSystemId()).tryNext().orElse(null);
             if (v != null) {
                 for (Map.Entry<String, Object> e : update.getProperties().entrySet()) {
@@ -53,7 +53,7 @@ public class JanusGraphPropertyBenchmarkExecutor extends JanusGraphBenchmarkExec
 
     @Override
     public List<Double> updateEdgeProperty(String label, List<UpdateEdgePropertyParams.EdgeUpdate> updates, int batchSize) {
-        return transactionalExecute(updates, update -> {
+        return transactionalBatchExecute(updates, update -> {
             g.V(update.getSrcSystemId()).outE(label)
                 .where(__.inV().hasId(update.getDstSystemId()))
                 .forEachRemaining(edge -> {
@@ -66,7 +66,7 @@ public class JanusGraphPropertyBenchmarkExecutor extends JanusGraphBenchmarkExec
 
     @Override
     public List<Double> getVertexByProperty(List<GetVertexByPropertyParams.PropertyQuery> queries, int batchSize) {
-        return transactionalExecute(queries, query -> {
+        return transactionalBatchExecute(queries, query -> {
             g.V().has(query.getKey(), query.getValue())
                 .forEachRemaining(blackhole::consume);
         }, batchSize);
@@ -74,7 +74,7 @@ public class JanusGraphPropertyBenchmarkExecutor extends JanusGraphBenchmarkExec
 
     @Override
     public List<Double> getEdgeByProperty(List<GetEdgeByPropertyParams.PropertyQuery> queries, int batchSize) {
-        return transactionalExecute(queries, query -> {
+        return transactionalBatchExecute(queries, query -> {
             g.E().has(query.getKey(), query.getValue())
                 .forEachRemaining(blackhole::consume);
         }, batchSize);

@@ -115,7 +115,7 @@ public class OrientDBBenchmarkExecutor implements BenchmarkExecutor {
         void execute() throws Exception;
     }
 
-    protected <T> List<Double> transactionalExecute(List<T> items, TransactionalOperation<T> operation, int batchSize) {
+    protected <T> List<Double> transactionalBatchExecute(List<T> items, TransactionalOperation<T> operation, int batchSize) {
         List<Double> latencies = new ArrayList<>();
         for (int i = 0; i < items.size(); i += batchSize) {
             int end = Math.min(i + batchSize, items.size());
@@ -135,7 +135,7 @@ public class OrientDBBenchmarkExecutor implements BenchmarkExecutor {
         return latencies;
     }
 
-    protected List<Double> transactionalExecute(int count, TransactionalOperationNoParam operation, int batchSize) {
+    protected List<Double> transactionalBatchExecute(int count, TransactionalOperationNoParam operation, int batchSize) {
         List<Double> latencies = new ArrayList<>();
         for (int i = 0; i < count; i += batchSize) {
             int batchCount = Math.min(i + batchSize, count) - i;
@@ -156,14 +156,14 @@ public class OrientDBBenchmarkExecutor implements BenchmarkExecutor {
 
     @Override
     public List<Double> addVertex(int count, int batchSize) {
-        return transactionalExecute(count, () -> {
+        return transactionalBatchExecute(count, () -> {
             db.newVertex(VERTEX_CLASS).save();
         }, batchSize);
     }
 
     @Override
     public List<Double> removeVertex(List<Object> systemIds, int batchSize) {
-        return transactionalExecute(systemIds, systemId -> {
+        return transactionalBatchExecute(systemIds, systemId -> {
             OVertex vertex = db.load((com.orientechnologies.orient.core.id.ORID) systemId);
             if (vertex != null) {
                 vertex.delete();
@@ -173,7 +173,7 @@ public class OrientDBBenchmarkExecutor implements BenchmarkExecutor {
 
     @Override
     public List<Double> addEdge(String label, List<AddEdgeParams.EdgePair> pairs, int batchSize) {
-        return transactionalExecute(pairs, pair -> {
+        return transactionalBatchExecute(pairs, pair -> {
             OVertex src = db.load((com.orientechnologies.orient.core.id.ORID) pair.getSrcSystemId());
             OVertex dst = db.load((com.orientechnologies.orient.core.id.ORID) pair.getDstSystemId());
             if (src != null && dst != null) {
@@ -184,7 +184,7 @@ public class OrientDBBenchmarkExecutor implements BenchmarkExecutor {
 
     @Override
     public List<Double> removeEdge(String label, List<RemoveEdgeParams.EdgePair> pairs, int batchSize) {
-        return transactionalExecute(pairs, pair -> {
+        return transactionalBatchExecute(pairs, pair -> {
             OVertex src = db.load((com.orientechnologies.orient.core.id.ORID) pair.getSrcSystemId());
             OVertex dst = db.load((com.orientechnologies.orient.core.id.ORID) pair.getDstSystemId());
             if (src != null && dst != null) {
@@ -208,7 +208,7 @@ public class OrientDBBenchmarkExecutor implements BenchmarkExecutor {
             case "BOTH": dir = ODirection.BOTH; break;
             default: throw new IllegalArgumentException("Invalid direction: " + direction);
         }
-        return transactionalExecute(systemIds, systemId -> {
+        return transactionalBatchExecute(systemIds, systemId -> {
             OVertex vertex = db.load((com.orientechnologies.orient.core.id.ORID) systemId);
             if (vertex != null) {
                 vertex.getVertices(dir).iterator().forEachRemaining(blackhole::consume);

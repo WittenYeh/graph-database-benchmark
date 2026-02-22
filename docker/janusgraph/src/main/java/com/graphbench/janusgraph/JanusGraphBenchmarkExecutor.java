@@ -106,7 +106,7 @@ public class JanusGraphBenchmarkExecutor implements BenchmarkExecutor {
         void execute() throws Exception;
     }
 
-    protected <T> List<Double> transactionalExecute(List<T> items, TransactionalOperation<T> operation, int batchSize) {
+    protected <T> List<Double> transactionalBatchExecute(List<T> items, TransactionalOperation<T> operation, int batchSize) {
         List<Double> latencies = new ArrayList<>();
         for (int i = 0; i < items.size(); i += batchSize) {
             int end = Math.min(i + batchSize, items.size());
@@ -125,7 +125,7 @@ public class JanusGraphBenchmarkExecutor implements BenchmarkExecutor {
         return latencies;
     }
 
-    protected List<Double> transactionalExecute(int count, TransactionalOperationNoParam operation, int batchSize) {
+    protected List<Double> transactionalBatchExecute(int count, TransactionalOperationNoParam operation, int batchSize) {
         List<Double> latencies = new ArrayList<>();
         for (int i = 0; i < count; i += batchSize) {
             int batchCount = Math.min(i + batchSize, count) - i;
@@ -147,28 +147,28 @@ public class JanusGraphBenchmarkExecutor implements BenchmarkExecutor {
 
     @Override
     public List<Double> addVertex(int count, int batchSize) {
-        return transactionalExecute(count, () -> {
+        return transactionalBatchExecute(count, () -> {
             g.addV(NODE_LABEL).next();
         }, batchSize);
     }
 
     @Override
     public List<Double> removeVertex(List<Object> systemIds, int batchSize) {
-        return transactionalExecute(systemIds, systemId -> {
+        return transactionalBatchExecute(systemIds, systemId -> {
             g.V(systemId).drop().iterate();
         }, batchSize);
     }
 
     @Override
     public List<Double> addEdge(String label, List<AddEdgeParams.EdgePair> pairs, int batchSize) {
-        return transactionalExecute(pairs, pair -> {
+        return transactionalBatchExecute(pairs, pair -> {
             g.V(pair.getSrcSystemId()).addE(label).to(g.V(pair.getDstSystemId())).iterate();
         }, batchSize);
     }
 
     @Override
     public List<Double> removeEdge(String label, List<RemoveEdgeParams.EdgePair> pairs, int batchSize) {
-        return transactionalExecute(pairs, pair -> {
+        return transactionalBatchExecute(pairs, pair -> {
             g.V(pair.getSrcSystemId()).outE(label)
                 .where(__.inV().hasId(pair.getDstSystemId()))
                 .drop().iterate();
@@ -177,7 +177,7 @@ public class JanusGraphBenchmarkExecutor implements BenchmarkExecutor {
 
     @Override
     public List<Double> getNbrs(String direction, List<Object> systemIds, int batchSize) {
-        return transactionalExecute(systemIds, systemId -> {
+        return transactionalBatchExecute(systemIds, systemId -> {
             if ("OUT".equals(direction)) {
                 g.V(systemId).out().forEachRemaining(blackhole::consume);
             } else if ("IN".equals(direction)) {

@@ -185,7 +185,7 @@ def main():
     )
 
     parser.add_argument('--database-name', required=True,
-                        choices=['neo4j', 'janusgraph', 'arangodb', 'orientdb'],
+                        choices=['neo4j', 'janusgraph', 'arangodb', 'orientdb', 'aster', 'sqlg'],
                         help='Database to benchmark')
 
     parser.add_argument('--database-config', default='config/database-config.json',

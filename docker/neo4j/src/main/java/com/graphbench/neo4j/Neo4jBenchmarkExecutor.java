@@ -101,7 +101,7 @@ public class Neo4jBenchmarkExecutor implements BenchmarkExecutor {
         void execute(Transaction tx) throws Exception;
     }
 
-    protected <T> List<Double> transactionalExecute(List<T> items, TransactionalOperation<T> operation, int batchSize) {
+    protected <T> List<Double> transactionalBatchExecute(List<T> items, TransactionalOperation<T> operation, int batchSize) {
         List<Double> latencies = new ArrayList<>();
         for (int i = 0; i < items.size(); i += batchSize) {
             int end = Math.min(i + batchSize, items.size());
@@ -117,7 +117,7 @@ public class Neo4jBenchmarkExecutor implements BenchmarkExecutor {
         return latencies;
     }
 
-    protected List<Double> transactionalExecute(int count, TransactionalOperationNoParam operation, int batchSize) {
+    protected List<Double> transactionalBatchExecute(int count, TransactionalOperationNoParam operation, int batchSize) {
         List<Double> latencies = new ArrayList<>();
         for (int i = 0; i < count; i += batchSize) {
             int batchCount = Math.min(i + batchSize, count) - i;
@@ -136,14 +136,14 @@ public class Neo4jBenchmarkExecutor implements BenchmarkExecutor {
 
     @Override
     public List<Double> addVertex(int count, int batchSize) {
-        return transactionalExecute(count, tx -> {
+        return transactionalBatchExecute(count, tx -> {
             tx.createNode(Label.label(NODE_LABEL));
         }, batchSize);
     }
 
     @Override
     public List<Double> removeVertex(List<Object> systemIds, int batchSize) {
-        return transactionalExecute(systemIds, (tx, systemId) -> {
+        return transactionalBatchExecute(systemIds, (tx, systemId) -> {
             Node node = tx.getNodeById((Long) systemId);
             if (node != null) {
                 for (Relationship rel : node.getRelationships()) { rel.delete(); }
@@ -155,7 +155,7 @@ public class Neo4jBenchmarkExecutor implements BenchmarkExecutor {
     @Override
     public List<Double> addEdge(String label, List<AddEdgeParams.EdgePair> pairs, int batchSize) {
         RelationshipType relType = RelationshipType.withName(label);
-        return transactionalExecute(pairs, (tx, pair) -> {
+        return transactionalBatchExecute(pairs, (tx, pair) -> {
             Node src = tx.getNodeById((Long) pair.getSrcSystemId());
             Node dst = tx.getNodeById((Long) pair.getDstSystemId());
             if (src != null && dst != null) { src.createRelationshipTo(dst, relType); }
@@ -165,7 +165,7 @@ public class Neo4jBenchmarkExecutor implements BenchmarkExecutor {
     @Override
     public List<Double> removeEdge(String label, List<RemoveEdgeParams.EdgePair> pairs, int batchSize) {
         RelationshipType relType = RelationshipType.withName(label);
-        return transactionalExecute(pairs, (tx, pair) -> {
+        return transactionalBatchExecute(pairs, (tx, pair) -> {
             Node src = tx.getNodeById((Long) pair.getSrcSystemId());
             Node dst = tx.getNodeById((Long) pair.getDstSystemId());
             if (src != null && dst != null) {
@@ -185,7 +185,7 @@ public class Neo4jBenchmarkExecutor implements BenchmarkExecutor {
             case "BOTH": dir = Direction.BOTH; break;
             default: throw new IllegalArgumentException("Invalid direction: " + direction);
         }
-        return transactionalExecute(systemIds, (tx, systemId) -> {
+        return transactionalBatchExecute(systemIds, (tx, systemId) -> {
             Node node = tx.getNodeById((Long) systemId);
             if (node != null) {
                 for (Relationship rel : node.getRelationships(dir)) {

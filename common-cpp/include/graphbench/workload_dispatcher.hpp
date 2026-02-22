@@ -155,31 +155,31 @@ private:
 
                 if (taskType == "ADD_VERTEX") {
                     auto params = parameterParser_.parseAddVertexParameters(parameters);
-                    executeBatchOperation(workload, result, taskIndex, totalTasks, params.count,
+                    executeVaryBatchSizeBench(workload, result, taskIndex, totalTasks, params.count,
                         [this, &params](int batchSize) {
                             return executor_->addVertex(params.count, batchSize);
                         });
                 } else if (taskType == "ADD_EDGE") {
                     auto params = parameterParser_.parseAddEdgeParameters(parameters);
-                    executeBatchOperation(workload, result, taskIndex, totalTasks, params.originalCount,
+                    executeVaryBatchSizeBench(workload, result, taskIndex, totalTasks, params.originalCount,
                         [this, &params](int batchSize) {
                             return executor_->addEdge(params.label, params.pairs, batchSize);
                         });
                 } else if (taskType == "REMOVE_VERTEX") {
                     auto params = parameterParser_.parseRemoveVertexParameters(parameters);
-                    executeBatchOperation(workload, result, taskIndex, totalTasks, params.originalCount,
+                    executeVaryBatchSizeBench(workload, result, taskIndex, totalTasks, params.originalCount,
                         [this, &params](int batchSize) {
                             return executor_->removeVertex(params.systemIds, batchSize);
                         });
                 } else if (taskType == "REMOVE_EDGE") {
                     auto params = parameterParser_.parseRemoveEdgeParameters(parameters);
-                    executeBatchOperation(workload, result, taskIndex, totalTasks, params.originalCount,
+                    executeVaryBatchSizeBench(workload, result, taskIndex, totalTasks, params.originalCount,
                         [this, &params](int batchSize) {
                             return executor_->removeEdge(params.label, params.pairs, batchSize);
                         });
                 } else if (taskType == "GET_NBRS") {
                     auto params = parameterParser_.parseGetNbrsParameters(parameters);
-                    executeBatchOperation(workload, result, taskIndex, totalTasks, params.originalCount,
+                    executeVaryBatchSizeBench(workload, result, taskIndex, totalTasks, params.originalCount,
                         [this, &params](int batchSize) {
                             return executor_->getNbrs(params.direction, params.systemIds, batchSize);
                         });
@@ -238,7 +238,7 @@ private:
      * @param taskFunc Function that executes the actual task for a given batch size
      */
     template<typename Func>
-    void executeBatchOperation(const json& workload, json& result, int taskIndex, int totalTasks,
+    void executeVaryBatchSizeBench(const json& workload, json& result, int taskIndex, int totalTasks,
                          int numOps, Func taskFunc) {
         std::vector<int> batchSizes = workload.at("batch_sizes").get<std::vector<int>>();
         json batchResults = json::array();

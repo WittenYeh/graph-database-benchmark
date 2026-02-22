@@ -33,7 +33,7 @@ public class OrientDBPropertyBenchmarkExecutor extends OrientDBBenchmarkExecutor
 
     @Override
     public List<Double> updateVertexProperty(List<UpdateVertexPropertyParams.VertexUpdate> updates, int batchSize) {
-        return transactionalExecute(updates, update -> {
+        return transactionalBatchExecute(updates, update -> {
             OVertex vertex = db.load((com.orientechnologies.orient.core.id.ORID) update.getSystemId());
             if (vertex != null) {
                 for (Map.Entry<String, Object> e : update.getProperties().entrySet()) {
@@ -46,7 +46,7 @@ public class OrientDBPropertyBenchmarkExecutor extends OrientDBBenchmarkExecutor
 
     @Override
     public List<Double> updateEdgeProperty(String label, List<UpdateEdgePropertyParams.EdgeUpdate> updates, int batchSize) {
-        return transactionalExecute(updates, update -> {
+        return transactionalBatchExecute(updates, update -> {
             OVertex srcVertex = db.load((com.orientechnologies.orient.core.id.ORID) update.getSrcSystemId());
             OVertex dstVertex = db.load((com.orientechnologies.orient.core.id.ORID) update.getDstSystemId());
             if (srcVertex != null && dstVertex != null) {
@@ -66,7 +66,7 @@ public class OrientDBPropertyBenchmarkExecutor extends OrientDBBenchmarkExecutor
 
     @Override
     public List<Double> getVertexByProperty(List<GetVertexByPropertyParams.PropertyQuery> queries, int batchSize) {
-        return transactionalExecute(queries, query -> {
+        return transactionalBatchExecute(queries, query -> {
             String sql = "SELECT FROM " + VERTEX_CLASS + " WHERE " + query.getKey() + " = ?";
             try (OResultSet rs = db.query(sql, query.getValue())) {
                 rs.stream().forEachOrdered(blackhole::consume);
@@ -76,7 +76,7 @@ public class OrientDBPropertyBenchmarkExecutor extends OrientDBBenchmarkExecutor
 
     @Override
     public List<Double> getEdgeByProperty(List<GetEdgeByPropertyParams.PropertyQuery> queries, int batchSize) {
-        return transactionalExecute(queries, query -> {
+        return transactionalBatchExecute(queries, query -> {
             String sql = "SELECT FROM " + EDGE_CLASS + " WHERE " + query.getKey() + " = ?";
             try (OResultSet rs = db.query(sql, query.getValue())) {
                 rs.stream().forEachOrdered(blackhole::consume);

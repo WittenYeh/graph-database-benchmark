@@ -29,7 +29,7 @@ public class Neo4jPropertyBenchmarkExecutor extends Neo4jBenchmarkExecutor
 
     @Override
     public List<Double> updateVertexProperty(List<UpdateVertexPropertyParams.VertexUpdate> updates, int batchSize) {
-        return transactionalExecute(updates, (tx, update) -> {
+        return transactionalBatchExecute(updates, (tx, update) -> {
             Node node = tx.getNodeById((Long) update.getSystemId());
             if (node != null) {
                 for (Map.Entry<String, Object> e : update.getProperties().entrySet()) {
@@ -42,7 +42,7 @@ public class Neo4jPropertyBenchmarkExecutor extends Neo4jBenchmarkExecutor
     @Override
     public List<Double> updateEdgeProperty(String label, List<UpdateEdgePropertyParams.EdgeUpdate> updates, int batchSize) {
         RelationshipType relType = RelationshipType.withName(label);
-        return transactionalExecute(updates, (tx, update) -> {
+        return transactionalBatchExecute(updates, (tx, update) -> {
             Node srcNode = tx.getNodeById((Long) update.getSrcSystemId());
             Node dstNode = tx.getNodeById((Long) update.getDstSystemId());
             if (srcNode != null && dstNode != null) {
@@ -60,7 +60,7 @@ public class Neo4jPropertyBenchmarkExecutor extends Neo4jBenchmarkExecutor
 
     @Override
     public List<Double> getVertexByProperty(List<GetVertexByPropertyParams.PropertyQuery> queries, int batchSize) {
-        return transactionalExecute(queries, (tx, query) -> {
+        return transactionalBatchExecute(queries, (tx, query) -> {
             try (ResourceIterator<Node> nodes = tx.findNodes(Label.label(NODE_LABEL), query.getKey(), query.getValue())) {
                 nodes.forEachRemaining(blackhole::consume);
             }
@@ -69,7 +69,7 @@ public class Neo4jPropertyBenchmarkExecutor extends Neo4jBenchmarkExecutor
 
     @Override
     public List<Double> getEdgeByProperty(List<GetEdgeByPropertyParams.PropertyQuery> queries, int batchSize) {
-        return transactionalExecute(queries, (tx, query) -> {
+        return transactionalBatchExecute(queries, (tx, query) -> {
             tx.getAllRelationships().forEach(rel -> {
                 Object val = rel.getProperty(query.getKey(), null);
                 if (val != null && val.equals(query.getValue())) {

@@ -1,6 +1,6 @@
 # Graph Database Benchmark
 
-An embedded graph database benchmark framework for testing Neo4j, JanusGraph, and ArangoDB **latency performance** using **native APIs** instead of query engines.
+An embedded graph database benchmark framework for testing Neo4j, JanusGraph, ArangoDB, and Aster **latency performance** using **native APIs** instead of query engines.
 
 ## Project Structure
 
@@ -46,15 +46,23 @@ graph-database-benchmark/
 │   │   └── src/main/java/com/graphbench/janusgraph/
 │   │       ├── BenchmarkServer.java
 │   │       └── JanusGraphBenchmarkExecutor.java
-│   └── arangodb/                  # ArangoDB benchmark (C++)
+│   ├── arangodb/                  # ArangoDB benchmark (C++)
+│   │   ├── Dockerfile
+│   │   ├── CMakeLists.txt
+│   │   └── src/
+│   │       ├── arango_utils.hpp
+│   │       ├── arangodb_graph_loader.hpp
+│   │       ├── arangodb_benchmark_executor.hpp
+│   │       ├── arangodb_property_benchmark_executor.hpp
+│   │       └── arangodb_benchmark_server.cpp
+│   └── aster/                     # Aster embedded benchmark (C++)
 │       ├── Dockerfile
 │       ├── CMakeLists.txt
 │       └── src/
-│           ├── arango_utils.hpp
-│           ├── arangodb_graph_loader.hpp
-│           ├── arangodb_benchmark_executor.hpp
-│           ├── arangodb_property_benchmark_executor.hpp
-│           └── arangodb_benchmark_server.cpp
+│           ├── aster_graph_loader.hpp
+│           ├── aster_benchmark_executor.hpp
+│           ├── aster_property_benchmark_executor.hpp
+│           └── aster_benchmark_server.cpp
 ├── config/                        # Configuration files
 │   ├── database-config.json
 │   └── datasets.json
@@ -551,6 +559,23 @@ Example output:
 - Optimized batch insertion for graph loading
 - No AQL query parsing overhead for batch operations
 
+**Aster (RocksGraph API):**
+- Direct calls to RocksGraph API (RocksDB-based graph extension)
+- Native C++ embedded graph operations: `AddVertex()`, `AddEdge()`, `DeleteEdge()`, `GetAllEdges()`
+- Property graph support with `AddVertexProperty()`, `AddEdgeProperty()`, `GetVerticesWithProperty()`
+- Adaptive edge update policy for optimized performance
+- Zero query parsing overhead (pure embedded API)
+
+**OrientDB (Native API):**
+- Direct calls to OrientDB embedded API
+- Transaction management and batch operations
+- Native graph traversal and property operations
+
+**Sqlg (TinkerPop Structure API):**
+- Direct calls to TinkerPop Structure API with H2 backend
+- Transaction management via `g.tx().commit()`
+- No Gremlin query parsing overhead
+
 ## Database Information
 
 | Database | Version | Release Date | Backend/Driver | Benchmark Mode | Requirements |
@@ -558,9 +583,12 @@ Example output:
 | Neo4j | 2026.01.4 | January 2026 | Embedded | Embedded | Java 21 |
 | JanusGraph | 1.2.0-20251114-142114.b424a8f | November 14, 2025 | BerkeleyDB | Embedded | Java 17 |
 | ArangoDB | 3.12.7-2 | December 2024 | Fuerte C++ driver | Client-Server | C++17 |
+| Aster | Latest | 2025 | Embedded Graph | Embedded | C++17 |
+| OrientDB | Latest | 2024 | Embedded | Embedded | Java 17 |
+| Sqlg | Latest | 2024 | H2 Database | Embedded | Java 17 |
 
 **Benchmark Mode:**
-- **Embedded**: Database runs in the same process as the benchmark executor (Neo4j, JanusGraph)
+- **Embedded**: Database runs in the same process as the benchmark executor (Neo4j, JanusGraph, Aster, OrientDB, Sqlg)
 - **Client-Server**: Database runs as a separate server process, benchmark executor connects via client API (ArangoDB)
 
 ## Design Principles

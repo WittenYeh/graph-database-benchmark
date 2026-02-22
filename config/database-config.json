@@ -40,5 +40,24 @@
     "config": {
       "heap_size": "4G"
     }
+  },
+  "aster": {
+    "docker_image": "bench-aster",
+    "dockerfile_path": "./docker/aster/Dockerfile",
+    "container_name": "aster-benchmark",
+    "api_port": 50084,
+    "runtime": "cpp",
+    "config": {}
+  },
+  "sqlg": {
+    "docker_image": "bench-sqlg",
+    "dockerfile_path": "./docker/sqlg/Dockerfile",
+    "container_name": "sqlg-benchmark",
+    "api_port": 50085,
+    "runtime": "java",
+    "config": {
+      "heap_size": "4G",
+      "storage_backend": "h2"
+    }
   }
 }

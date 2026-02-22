@@ -38,7 +38,7 @@ public:
      * Uses batch AQL UPDATE to modify multiple vertices in one query.
      */
     std::vector<double> updateVertexPropertyImpl(const std::vector<VertexUpdate>& updates, int batchSize) {
-        return batchExecute(updates, batchSize, [this](const std::vector<VertexUpdate>& batch) {
+        return executeBatchOperation(updates, batchSize, [this](const std::vector<VertexUpdate>& batch) {
             // Build array of update specifications
             json updateSpecs = json::array();
             for (const auto& update : batch) {
@@ -68,7 +68,7 @@ public:
     std::vector<double> updateEdgePropertyImpl(const std::string& label,
                                                const std::vector<EdgeUpdate>& updates,
                                                int batchSize) {
-        return batchExecute(updates, batchSize, [this, &label](const std::vector<EdgeUpdate>& batch) {
+        return executeBatchOperation(updates, batchSize, [this, &label](const std::vector<EdgeUpdate>& batch) {
             // Build array of update specifications
             json updateSpecs = json::array();
             for (const auto& update : batch) {
@@ -100,7 +100,7 @@ public:
      * Uses batch AQL to query multiple property values in one query.
      */
     std::vector<double> getVertexByPropertyImpl(const std::vector<PropertyQuery>& queries, int batchSize) {
-        return batchExecute(queries, batchSize, [this](const std::vector<PropertyQuery>& batch) {
+        return executeBatchOperation(queries, batchSize, [this](const std::vector<PropertyQuery>& batch) {
             // Build array of query specifications
             json querySpecs = json::array();
             for (const auto& query : batch) {
@@ -126,7 +126,7 @@ public:
      * Uses batch AQL to query multiple property values in one query.
      */
     std::vector<double> getEdgeByPropertyImpl(const std::vector<PropertyQuery>& queries, int batchSize) {
-        return batchExecute(queries, batchSize, [this](const std::vector<PropertyQuery>& batch) {
+        return executeBatchOperation(queries, batchSize, [this](const std::vector<PropertyQuery>& batch) {
             // Build array of query specifications
             json querySpecs = json::array();
             for (const auto& query : batch) {
