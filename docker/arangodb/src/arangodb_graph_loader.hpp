@@ -1,6 +1,6 @@
 #pragma once
 
-#include "arango_utils.hpp"
+#include "arangodb_client.hpp"
 #include <graphbench/progress_callback.hpp>
 #include <graphbench/benchmark_utils.hpp>
 #include <csv.hpp>
@@ -38,7 +38,7 @@ public:
      * @param progressCallback Progress callback for reporting load progress
      * @param loadProperties Whether to load property columns from CSV (true for property benchmarks)
      */
-    ArangoDBGraphLoader(std::shared_ptr<ArangoUtils> arangoUtils,
+    ArangoDBGraphLoader(std::shared_ptr<ArangoDBClient> arangoUtils,
                         const std::string& dbName,
                         std::shared_ptr<ProgressCallback> progressCallback,
                         bool loadProperties)
@@ -112,7 +112,7 @@ private:
     static constexpr const char* EDGE_COLLECTION = "edges";
     static constexpr int LOAD_BATCH_SIZE = 10000;
 
-    std::shared_ptr<ArangoUtils> arangoUtils_;
+    std::shared_ptr<ArangoDBClient> arangoUtils_;
     std::string dbName_;
     std::shared_ptr<ProgressCallback> progressCallback_;
     bool loadProperties_;

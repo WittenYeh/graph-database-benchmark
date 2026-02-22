@@ -551,13 +551,17 @@ Example output:
 - Optimized batch insertion for graph loading
 - No AQL query parsing overhead for batch operations
 
-## Database Versions
+## Database Information
 
-| Database | Version | Release Date | Backend/Driver | Requirements |
-|----------|---------|--------------|----------------|--------------|
-| Neo4j | 2026.01.4 | January 2026 | Embedded | Java 21 |
-| JanusGraph | 1.2.0-20251114-142114.b424a8f | November 14, 2025 | BerkeleyDB | Java 17 |
-| ArangoDB | 3.12.7-2 | December 2024 | Fuerte C++ driver | C++17 |
+| Database | Version | Release Date | Backend/Driver | Benchmark Mode | Requirements |
+|----------|---------|--------------|----------------|----------------|--------------|
+| Neo4j | 2026.01.4 | January 2026 | Embedded | Embedded | Java 21 |
+| JanusGraph | 1.2.0-20251114-142114.b424a8f | November 14, 2025 | BerkeleyDB | Embedded | Java 17 |
+| ArangoDB | 3.12.7-2 | December 2024 | Fuerte C++ driver | Client-Server | C++17 |
+
+**Benchmark Mode:**
+- **Embedded**: Database runs in the same process as the benchmark executor (Neo4j, JanusGraph)
+- **Client-Server**: Database runs as a separate server process, benchmark executor connects via client API (ArangoDB)
 
 ## Design Principles
 

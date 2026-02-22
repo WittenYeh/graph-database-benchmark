@@ -11,10 +11,10 @@ namespace graphbench {
 using json = nlohmann::json;
 
 /**
- * Utility class for ArangoDB REST API operations.
+ * Client class for ArangoDB REST API operations.
  * Provides common functionality for executing HTTP requests to ArangoDB.
  */
-class ArangoUtils {
+class ArangoDBClient {
 private:
     std::string baseUrl;
     std::string username;
@@ -28,7 +28,7 @@ private:
     }
 
 public:
-    ArangoUtils(const std::string& host, int port,
+    ArangoDBClient(const std::string& host, int port,
                 const std::string& user = "root", const std::string& pass = "")
         : baseUrl("http://" + host + ":" + std::to_string(port)),
           username(user), password(pass), currentDatabase("_system") {}

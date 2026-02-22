@@ -1,6 +1,6 @@
 #pragma once
 
-#include "arango_utils.hpp"
+#include "arangodb_client.hpp"
 #include "arangodb_graph_loader.hpp"
 #include <graphbench/benchmark_executor.hpp>
 #include <graphbench/progress_callback.hpp>
@@ -39,7 +39,7 @@ public:
         BenchmarkUtils::checkAndCleanDatabaseDirectory(dbPath_);
 
         // Create ArangoDB utility instance
-        arangoUtils_ = std::make_shared<ArangoUtils>("localhost", 8529, "root", "");
+        arangoUtils_ = std::make_shared<ArangoDBClient>("localhost", 8529, "root", "");
 
         // Create database
         try {
@@ -85,7 +85,7 @@ public:
      * Open database connection (after snapshot/restore operations).
      */
     void openDatabaseImpl() {
-        arangoUtils_ = std::make_shared<ArangoUtils>("localhost", 8529, "root", "");
+        arangoUtils_ = std::make_shared<ArangoDBClient>("localhost", 8529, "root", "");
         arangoUtils_->useDatabase(DB_NAME);
     }
 
@@ -226,7 +226,10 @@ public:
                 "  FOR v IN 1..1 " + traversalDir + " vid " + std::string(EDGE_COLLECTION) + " "
                 "    RETURN v";
             json bindVars = {{"vids", vertexIds}};
-            arangoUtils_->executeAQLWithResults(query, bindVars);
+            json result = arangoUtils_->executeAQL(query, bindVars);
+
+            // Prevent dead code elimination of query result
+            asm volatile("" : : "r,m"(result) : "memory");
         });
     }
 
@@ -264,7 +267,7 @@ protected:
 
     std::string dbPath_;
     std::string snapshotPath_;
-    std::shared_ptr<ArangoUtils> arangoUtils_;
+    std::shared_ptr<ArangoDBClient> arangoUtils_;
     std::shared_ptr<ProgressCallback> progressCallback_;
     std::map<int64_t, std::string> nodeIdsMap_;
     int errorCount_;
