@@ -20,8 +20,14 @@ from progress_server import ProgressServer
 class BenchmarkLauncher:
     def __init__(self, args):
         self.args = args
-        self.database_names = args.database_name if isinstance(args.database_name, list) else [args.database_name]
         self.database_config = self._load_json(args.database_config)
+
+        # Handle 'all' keyword for database names
+        if 'all' in args.database_name:
+            self.database_names = list(self.database_config.keys())
+        else:
+            self.database_names = args.database_name if isinstance(args.database_name, list) else [args.database_name]
+
         self.dataset_config = self._load_json(args.dataset_config)
         self.workload_config = self._load_json(args.workload_config)
         self.output_dir = Path(args.output_dir)
@@ -202,8 +208,7 @@ def main():
     )
 
     parser.add_argument('--database-name', nargs='+', required=True,
-                        choices=['neo4j', 'janusgraph', 'arangodb', 'orientdb', 'aster', 'sqlg'],
-                        help='Database(s) to benchmark')
+                        help='Database(s) to benchmark (use "all" to run all databases)')
 
     parser.add_argument('--database-config', default='config/database-config.json',
                         help='Path to database configuration file')

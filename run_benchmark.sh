@@ -5,6 +5,7 @@
 # Usage with named arguments (recommended):
 #   ./run_benchmark.sh --database neo4j --dataset coAuthorsDBLP
 #   ./run_benchmark.sh --database neo4j,janusgraph,arangodb --dataset coAuthorsDBLP,delaunay_n13
+#   ./run_benchmark.sh --database all --dataset coAuthorsDBLP
 #   ./run_benchmark.sh --database neo4j --dataset coAuthorsDBLP --workload workloads/templates/quick_test.json
 #
 # Usage with positional arguments (legacy):
@@ -12,7 +13,7 @@
 #   ./run_benchmark.sh neo4j,janusgraph,arangodb coAuthorsDBLP,delaunay_n13
 #
 # Arguments:
-#   --database, -d    Comma-separated list of databases (e.g., "neo4j,janusgraph,arangodb")
+#   --database, -d    Comma-separated list of databases or "all" (e.g., "neo4j,janusgraph,arangodb" or "all")
 #   --dataset, -s     Comma-separated list of datasets (e.g., "coAuthorsDBLP,delaunay_n13")
 #   --workload, -w    Path to workload config (default: workloads/templates/example_workload.json)
 #   --help, -h        Show this help message
@@ -45,7 +46,7 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: ./run_benchmark.sh [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  --database, -d    Comma-separated list of databases (e.g., 'neo4j,janusgraph,arangodb')"
+            echo "  --database, -d    Comma-separated list of databases or 'all' (e.g., 'neo4j,janusgraph,arangodb' or 'all')"
             echo "  --dataset, -s     Comma-separated list of datasets (e.g., 'coAuthorsDBLP,delaunay_n13')"
             echo "  --workload, -w    Path to workload config (default: workloads/templates/example_workload.json)"
             echo "  --help, -h        Show this help message"
@@ -53,6 +54,7 @@ while [[ $# -gt 0 ]]; do
             echo "Examples:"
             echo "  ./run_benchmark.sh --database neo4j --dataset coAuthorsDBLP"
             echo "  ./run_benchmark.sh -d neo4j,janusgraph,arangodb -s coAuthorsDBLP,delaunay_n13"
+            echo "  ./run_benchmark.sh -d all -s coAuthorsDBLP"
             echo "  ./run_benchmark.sh -d arangodb -s coAuthorsDBLP -w workloads/templates/quick_test.json"
             echo ""
             echo "Note: The workload is compiled once per dataset and reused across all databases."
@@ -80,6 +82,13 @@ done
 # Apply defaults if not specified
 DATABASES=${DATABASES:-neo4j}
 DATASETS=${DATASETS:-coAuthorsDBLP}
+
+# Handle 'all' keyword for databases
+if [ "$DATABASES" = "all" ]; then
+    # Extract all database names from config file
+    DATABASES=$(python3 -c "import json; config=json.load(open('config/database-config.json')); print(','.join(config.keys()))")
+    echo "🔍 Detected 'all' keyword - running benchmarks for all databases: $DATABASES"
+fi
 
 # Convert comma-separated strings to space-separated for Python args
 DB_ARGS=$(echo "$DATABASES" | tr ',' ' ')
