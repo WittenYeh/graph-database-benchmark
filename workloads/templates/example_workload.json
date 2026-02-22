@@ -6,10 +6,10 @@
   },
   "tasks": [
     { "name": "load_graph" },
-    { "name": "add_vertex", "ops": 10000, "batch_sizes": [1, 4, 16, 64, 256, 1024] },
-    { "name": "add_edge", "ops": 10000, "batch_sizes": [1, 4, 16, 64, 256, 1024] },
-    { "name": "remove_vertex", "ops": 10000, "batch_sizes": [1, 4, 16, 64, 256, 1024] },
-    { "name": "remove_edge", "ops": 10000, "batch_sizes": [1, 4, 16, 64, 256, 1024] },
-    { "name": "get_nbrs", "ops": 5000, "direction": "OUT", "batch_sizes": [1, 4, 16, 64, 256, 1024] }
+    { "name": "add_vertex", "ops": 10240, "batch_sizes": [512, 1024, 2048] },
+    { "name": "add_edge", "ops": 10240, "batch_sizes": [512, 1024, 2048] },
+    { "name": "remove_vertex", "ops": 10240, "batch_sizes": [512, 1024, 2048] },
+    { "name": "remove_edge", "ops": 10240, "batch_sizes": [512, 1024, 2048] },
+    { "name": "get_nbrs", "ops": 10240, "direction": "OUT", "batch_sizes": [512, 1024, 2048] }
   ]
 }

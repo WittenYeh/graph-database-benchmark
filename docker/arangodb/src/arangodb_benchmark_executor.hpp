@@ -248,6 +248,13 @@ public:
         return std::any();
     }
 
+    /**
+     * Get progress callback for sending log messages.
+     */
+    ProgressCallback* getProgressCallback() {
+        return progressCallback_.get();
+    }
+
 protected:
     static constexpr const char* DB_PATH = "/tmp/arangodb-benchmark-db";
     static constexpr const char* SNAPSHOT_PATH = "/tmp/arangodb-benchmark-db-snapshot";

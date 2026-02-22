@@ -200,5 +200,8 @@ public class Neo4jBenchmarkExecutor implements BenchmarkExecutor {
     public void resetErrorCount() { errorCount = 0; }
 
     @Override
+    public ProgressCallback getProgressCallback() { return progressCallback; }
+
+    @Override
     public Object getSystemId(Long originId) { return nodeIdsMap.get(originId); }
 }

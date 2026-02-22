@@ -128,6 +128,12 @@ public:
     }
 
     void restoreGraph() {
+        // Send progress callback if available
+        auto* derived = static_cast<Derived*>(this);
+        if (derived->getProgressCallback()) {
+            derived->getProgressCallback()->sendLogMessage("Restoring database from snapshot...", "INFO");
+        }
+
         // Close the database
         closeDatabase();
 
@@ -147,6 +153,11 @@ public:
 
         // Reopen the database
         openDatabase();
+
+        // Send completion callback if available
+        if (derived->getProgressCallback()) {
+            derived->getProgressCallback()->sendLogMessage("Database restored from snapshot", "INFO");
+        }
     }
 
     int getErrorCount() const {

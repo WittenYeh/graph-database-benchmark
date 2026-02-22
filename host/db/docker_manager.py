@@ -32,8 +32,9 @@ class DockerManager:
             print(f"🔨 Building image {image_name}...")
 
         # Build image
-        # Build from project root to access common-java
-        project_root = Path(__file__).parent.parent.parent
+        # Build from project root to access common-java and common-cpp
+        # docker_manager.py is in host/db/, so go up 2 levels to reach project root
+        project_root = Path(__file__).resolve().parent.parent.parent
         self.client.images.build(
             path=str(project_root),
             dockerfile=str(dockerfile_path),

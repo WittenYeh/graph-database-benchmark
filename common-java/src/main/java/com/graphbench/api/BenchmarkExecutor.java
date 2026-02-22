@@ -166,6 +166,11 @@ public interface BenchmarkExecutor {
      * @throws Exception if restore fails
      */
     default void restoreGraph() throws Exception {
+        ProgressCallback callback = getProgressCallback();
+        if (callback != null) {
+            callback.sendLogMessage("Restoring database from snapshot...", "INFO");
+        }
+
         // Close the database
         closeDatabase();
 
@@ -185,6 +190,18 @@ public interface BenchmarkExecutor {
 
         // Reopen the database
         openDatabase();
+
+        if (callback != null) {
+            callback.sendLogMessage("Database restored from snapshot", "INFO");
+        }
+    }
+
+    /**
+     * Get the progress callback for sending log messages.
+     * @return ProgressCallback instance, or null if not available
+     */
+    default ProgressCallback getProgressCallback() {
+        return null;
     }
 
     /**
