@@ -32,9 +32,11 @@ class DockerManager:
             print(f"🔨 Building image {image_name}...")
 
         # Build image
-        dockerfile_dir = dockerfile_path.parent
+        # Build from project root to access common-java
+        project_root = Path(__file__).parent.parent.parent
         self.client.images.build(
-            path=str(dockerfile_dir),
+            path=str(project_root),
+            dockerfile=str(dockerfile_path),
             tag=image_name,
             rm=True,
             forcerm=True
