@@ -553,9 +553,11 @@ Example output:
 
 ## Database Versions
 
-- **Neo4j**: 2026.01.4 (requires Java 21)
-- **JanusGraph**: 1.2.0-20251114-142114.b424a8f with BerkeleyDB backend (requires Java 17)
-- **ArangoDB**: 3.12.7-2 with Fuerte C++ driver (requires C++17)
+| Database | Version | Release Date | Backend/Driver | Requirements |
+|----------|---------|--------------|----------------|--------------|
+| Neo4j | 2026.01.4 | January 2026 | Embedded | Java 21 |
+| JanusGraph | 1.2.0-20251114-142114.b424a8f | November 14, 2025 | BerkeleyDB | Java 17 |
+| ArangoDB | 3.12.7-2 | December 2024 | Fuerte C++ driver | C++17 |
 
 ## Design Principles
 
