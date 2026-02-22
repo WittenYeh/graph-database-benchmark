@@ -33,6 +33,23 @@ public class BenchmarkUtils {
     }
 
     /**
+     * Clean up old database directory on startup.
+     * @param dbPath Path to the database directory
+     */
+    public static void cleanupOldDatabase(String dbPath) {
+        File dbDir = new File(dbPath);
+        if (dbDir.exists()) {
+            System.out.println("Cleaning up old database directory: " + dbPath);
+            try {
+                deleteDirectory(dbDir);
+                System.out.println("Old database cleaned up successfully");
+            } catch (IOException e) {
+                System.err.println("Warning: Failed to clean up old database: " + e.getMessage());
+            }
+        }
+    }
+
+    /**
      * Recursively delete a directory and all its contents.
      * @param directory Directory to delete
      * @throws IOException if deletion fails

@@ -35,4 +35,4 @@ ENV API_PORT=50080
 ENV DB_TYPE=neo4j
 
 # Run the benchmark server
-CMD ["sh", "-c", "java $JAVA_OPTS -cp /app/benchmark.jar com.graphbench.api.BenchmarkServer"]
+CMD ["sh", "-c", "java $JAVA_OPTS -cp /app/benchmark.jar com.graphbench.neo4j.Neo4jBenchmarkServer"]

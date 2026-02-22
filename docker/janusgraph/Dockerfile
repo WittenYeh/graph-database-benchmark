@@ -35,4 +35,4 @@ ENV API_PORT=50081
 ENV DB_TYPE=janusgraph
 
 # Run the benchmark server
-CMD ["sh", "-c", "java $JAVA_OPTS -cp /app/benchmark.jar com.graphbench.api.BenchmarkServer"]
+CMD ["sh", "-c", "java $JAVA_OPTS -cp /app/benchmark.jar com.graphbench.janusgraph.JanusGraphBenchmarkServer"]
