@@ -108,6 +108,7 @@ def create_batch_size_plot(task_type: str, db_data: Dict[str, List[Dict[str, Any
         ),
         yaxis=dict(
             title='<b>Latency (μs)</b>',
+            type='log',
             gridcolor='lightgray',
             showgrid=True,
             zeroline=False

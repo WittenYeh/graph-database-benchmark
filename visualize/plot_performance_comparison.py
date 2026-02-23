@@ -129,6 +129,7 @@ def create_performance_comparison_plot(dataset: str, db_data: Dict[str, Dict[str
         ),
         yaxis=dict(
             title='<b>Best Latency (μs)</b>',
+            type='log',
             gridcolor='lightgray',
             showgrid=True,
             zeroline=False

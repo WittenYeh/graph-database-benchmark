@@ -280,13 +280,9 @@ def generate_index_html(plots_dir: Path, reports_dir: Path, output_file: Path):
 <body>
     <div class="container">
         <div class="header">
-            <h1>📊 Graph Database Benchmark Visualizations</h1>
-            <p>Interactive performance comparison and batch size analysis</p>
+            <h1>📊 GDSE Benchmark</h1>
+            <p>Graph Database Storage Engine Benchmark (Native API Latency Test)</p>
             <div class="stats">
-                <div class="stat-item">
-                    <span class="stat-number">{len(performance_plots)}</span>
-                    <span class="stat-label">Performance Plots</span>
-                </div>
                 <div class="stat-item">
                     <span class="stat-number">{len(batchsize_plots)}</span>
                     <span class="stat-label">Batch Size Plots</span>
@@ -309,12 +305,12 @@ def generate_index_html(plots_dir: Path, reports_dir: Path, output_file: Path):
                 <p style="color: #666; margin-bottom: 1rem;">Compare database performance across different tasks (best batch size selected)</p>
                 <div class="plots-grid">
 """
-        for plot in sorted(performance_plots, key=lambda x: x['dataset']):
+        for plot in sorted(performance_plots, key=lambda x: (x['workload'], x['dataset'])):
             html += f"""
                     <div class="plot-card" onclick="window.location.href='{plot['filename']}'">
                         <div class="plot-card-header">
-                            <div class="plot-card-title">{plot['dataset']}</div>
-                            <div class="plot-card-subtitle">{plot['workload'].replace('_', ' ').title()}</div>
+                            <div class="plot-card-title">{plot['workload'].replace('_', ' ').title()}</div>
+                            <div class="plot-card-subtitle">{plot['dataset']}</div>
                         </div>
                         <div class="plot-card-body">
                             <div class="plot-info">
@@ -323,8 +319,8 @@ def generate_index_html(plots_dir: Path, reports_dir: Path, output_file: Path):
                                     <span class="info-value">Performance Comparison</span>
                                 </div>
                                 <div class="info-row">
-                                    <span class="info-label">Tasks</span>
-                                    <span class="info-value">{plot['task']}</span>
+                                    <span class="info-label">Dataset</span>
+                                    <span class="info-value">{plot['dataset']}</span>
                                 </div>
                                 <div class="info-row">
                                     <span class="info-label">File Size</span>
@@ -358,12 +354,12 @@ def generate_index_html(plots_dir: Path, reports_dir: Path, output_file: Path):
                 <p style="color: #666; margin-bottom: 1rem;">Analyze how performance varies with different batch sizes</p>
                 <div class="plots-grid">
 """
-        for plot in sorted(batchsize_plots, key=lambda x: (x['dataset'], x['task'])):
+        for plot in sorted(batchsize_plots, key=lambda x: (x['task'], x['dataset'])):
             html += f"""
                     <div class="plot-card" onclick="window.location.href='{plot['filename']}'">
                         <div class="plot-card-header">
-                            <div class="plot-card-title">{plot['dataset']}</div>
-                            <div class="plot-card-subtitle">{plot['task'].replace('_', ' ').title()}</div>
+                            <div class="plot-card-title">{plot['task'].replace('_', ' ').title()}</div>
+                            <div class="plot-card-subtitle">{plot['dataset']}</div>
                         </div>
                         <div class="plot-card-body">
                             <div class="plot-info">
@@ -372,8 +368,8 @@ def generate_index_html(plots_dir: Path, reports_dir: Path, output_file: Path):
                                     <span class="info-value">Batch Size Analysis</span>
                                 </div>
                                 <div class="info-row">
-                                    <span class="info-label">Task</span>
-                                    <span class="info-value">{plot['task']}</span>
+                                    <span class="info-label">Dataset</span>
+                                    <span class="info-value">{plot['dataset']}</span>
                                 </div>
                                 <div class="info-row">
                                     <span class="info-label">File Size</span>

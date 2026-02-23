@@ -5,7 +5,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VISUALIZE_DIR="$SCRIPT_DIR/visualize"
+VISUALIZE_DIR="$SCRIPT_DIR"
 
 # Default output directory
 OUTPUT_DIR="plots"
