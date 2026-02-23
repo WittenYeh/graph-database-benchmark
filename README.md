@@ -1,4 +1,4 @@
-# Graph Database Benchmark
+# Graph Database Storage Engine Benchmark
 
 ```
    ____ ____  ____  _____       ____                  _                          _
